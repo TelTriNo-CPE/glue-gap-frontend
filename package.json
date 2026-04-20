@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.13.24",
     "axios": "^1.15.0",
     "openseadragon": "^6.0.2",
     "react": "^19.0.0",
