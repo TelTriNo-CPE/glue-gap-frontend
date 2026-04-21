@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { AnalysisResult, Gap } from '../types';
 import RadiusStatsPanel from './RadiusChart';
@@ -7,14 +7,33 @@ interface Props {
   result: AnalysisResult | null;
   error: string | null;
   hiddenGapIndices: Set<number>;
+  onShowAllGaps: () => void;
+  onHideAllGaps: () => void;
   onToggleGap: (index: number) => void;
+  selectedGapIds: Set<number>;
+  onSelectGap: (id: number | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
 }
 
-export default function ResultsPanel({ result, error, hiddenGapIndices, onToggleGap }: Props) {
+export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap }: Props) {
+  const allHidden = result ? hiddenGapIndices.size === result.gaps.length : false;
+
   return (
     <aside className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0">
-      <div className="p-4 border-b border-gray-100">
+      <div className="p-4 border-b border-gray-100 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">Analysis</h2>
+        {result && (
+          <button
+            onClick={() => allHidden ? onShowAllGaps() : onHideAllGaps()}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all
+              ${allHidden
+                ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+            title={allHidden ? 'Show all overlays' : 'Hide all overlays'}
+          >
+            {allHidden ? <EyeOffIcon /> : <EyeIcon />}
+            {allHidden ? 'Show All' : 'Hide All'}
+          </button>
+        )}
       </div>
 
       {/* Error */}
@@ -80,6 +99,8 @@ export default function ResultsPanel({ result, error, hiddenGapIndices, onToggle
               gaps={result.gaps}
               hiddenGapIndices={hiddenGapIndices}
               onToggleGap={onToggleGap}
+              selectedGapIds={selectedGapIds}
+              onSelectGap={onSelectGap}
             />
           )}
         </>
@@ -96,10 +117,13 @@ interface GapListProps {
   gaps: Gap[];
   hiddenGapIndices: Set<number>;
   onToggleGap: (index: number) => void;
+  selectedGapIds: Set<number>;
+  onSelectGap: (id: number | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
 }
 
-function GapList({ gaps, hiddenGapIndices, onToggleGap }: GapListProps) {
+function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap }: GapListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
 
   const virtualizer = useVirtualizer({
     count: gaps.length,
@@ -107,6 +131,18 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap }: GapListProps) {
     estimateSize: () => ITEM_HEIGHT,
     overscan: 10,
   });
+
+  // Auto-scroll to selected gap when it changes (e.g. from canvas click)
+  useEffect(() => {
+    // Only scroll to the MOST RECENTLY selected gap
+    const latest = Array.from(selectedGapIds).pop();
+    if (latest !== undefined && latest !== lastSelectedId) {
+      setLastSelectedId(latest);
+      virtualizer.scrollToIndex(latest, { align: 'center' });
+    } else if (selectedGapIds.size === 0) {
+      setLastSelectedId(null);
+    }
+  }, [selectedGapIds, virtualizer, lastSelectedId]);
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -123,7 +159,9 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap }: GapListProps) {
         <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
           {virtualizer.getVirtualItems().map(vRow => {
             const gap = gaps[vRow.index];
-            const hidden = hiddenGapIndices.has(vRow.index);
+            const isHidden = hiddenGapIndices.has(vRow.index);
+
+            const isSelected = selectedGapIds.has(vRow.index);
 
             return (
               <div
@@ -137,20 +175,29 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap }: GapListProps) {
                   transform: `translateY(${vRow.start}px)`,
                 }}
               >
-                <div className={`flex items-center gap-2 h-full px-4 text-sm
-                  hover:bg-gray-50 transition-colors
-                  ${hidden ? 'opacity-40' : ''}`}>
+                <div
+                  onClick={() => onSelectGap(vRow.index, 'toggle')}
+                  className={`flex items-center gap-2 h-full px-4 text-sm cursor-pointer
+                    transition-colors
+                    ${isSelected
+                      ? 'bg-yellow-100 border-l-4 border-yellow-400'
+                      : 'hover:bg-gray-50 border-l-4 border-transparent'}
+                    ${isHidden ? 'opacity-40' : ''}`}
+                >
                   <button
-                    onClick={() => onToggleGap(vRow.index)}
-                    title={hidden ? 'Show overlay' : 'Hide overlay'}
+                    onClick={(e) => { e.stopPropagation(); onToggleGap(vRow.index); }}
+                    title={isHidden ? 'Show overlay' : 'Hide overlay'}
                     className="shrink-0 text-gray-400 hover:text-gray-700 transition-colors"
                     aria-label={`Toggle visibility for gap ${vRow.index + 1}`}
                   >
-                    {hidden ? <EyeOffIcon /> : <EyeIcon />}
+                    {isHidden ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
-                  <span className="flex-1 text-gray-700">Gap {vRow.index + 1}</span>
-                  <span className="text-gray-400 text-xs font-mono">
-                    r={gap.equiv_radius_px.toFixed(1)} px
+                  <span className={`flex-1 ${isSelected ? 'text-yellow-800 font-medium' : 'text-gray-700'}`}>
+                    Gap {vRow.index + 1}
+                  </span>
+                  <span className={`text-xs font-mono text-right leading-tight ${isSelected ? 'text-yellow-700' : 'text-gray-400'}`}>
+                    r={gap.equiv_radius_px.toFixed(1)} px<br/>
+                    A={gap.area_px.toLocaleString()} px²
                   </span>
                 </div>
               </div>

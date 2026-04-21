@@ -14,6 +14,7 @@ const ANALYZE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const TOAST_DURATION_MS  = 10_000;
 
 export default function AnalysisView({ fileKey, onReset }: Props) {
+  const [selectedGapIds, setSelectedGapIds] = useState<Set<number>>(new Set());
   const stem = fileKey.replace(/\.[^.]+$/, '');
 
   const [result,           setResult]           = useState<AnalysisResult | null>(null);
@@ -23,6 +24,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [toast,            setToast]             = useState<string | null>(null);
   const [grayscale,        setGrayscale]         = useState(false);
   const [hiddenGapIndices, setHiddenGapIndices]  = useState<Set<number>>(new Set());
+  const [clickMode,        setClickMode]         = useState<'select' | 'deselect'>('select');
 
   // Auto-dismiss toast after TOAST_DURATION_MS
   useEffect(() => {
@@ -33,6 +35,67 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
 
   function handleGreyscale() {
     setGrayscale(true);
+  }
+
+  function handleSelectGap(
+    id: number | null,
+    mode: 'select' | 'deselect' | 'toggle' | 'clear' = 'select'
+  ) {
+    if (id === null || mode === 'clear') {
+      setSelectedGapIds(new Set());
+      return;
+    }
+
+    let wasAdded = false;
+    setSelectedGapIds(prev => {
+      const next = new Set(prev);
+      if (mode === 'toggle') {
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+          wasAdded = true;
+        }
+      } else if (mode === 'select') {
+        if (!next.has(id)) {
+          next.add(id);
+          wasAdded = true;
+        }
+      } else if (mode === 'deselect') {
+        next.delete(id);
+      }
+      return next;
+    });
+
+    // Rule 5: Auto-unhide if it was added to the selection
+    // Note: Since wasAdded is captured in the closure, it might be stale if multiple
+    // calls happen in one turn, but for single clicks this is reliable.
+    // Better: Always remove from hidden if we are in 'select' or 'toggle' (optimistic)
+    if (mode === 'select' || mode === 'toggle') {
+      setHiddenGapIndices(prev => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
+
+  function toggleGap(index: number) {
+    setHiddenGapIndices(prev => {
+      const next = new Set(prev);
+      next.has(index) ? next.delete(index) : next.add(index);
+      return next;
+    });
+  }
+
+  function showAllGaps() {
+    setHiddenGapIndices(new Set());
+  }
+
+  function hideAllGaps() {
+    if (!result) return;
+    setHiddenGapIndices(new Set(result.gaps.map((_, i) => i)));
   }
 
   async function handleDetect() {
@@ -139,18 +202,27 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         onGreyscale={handleGreyscale}
         onDetect={handleDetect}
         onReset={onReset}
+        clickMode={clickMode}
+        setClickMode={setClickMode}
       />
       <OsdViewer
         stem={stem}
         gaps={result?.gaps ?? []}
         hiddenGapIndices={hiddenGapIndices}
+        clickMode={clickMode}
         grayscale={grayscale}
+        selectedGapIds={selectedGapIds}
+        onSelectGap={handleSelectGap}
       />
       <ResultsPanel
         result={result}
         error={analyzeError}
         hiddenGapIndices={hiddenGapIndices}
         onToggleGap={toggleGap}
+        onShowAllGaps={showAllGaps}
+        onHideAllGaps={hideAllGaps}
+        selectedGapIds={selectedGapIds}
+        onSelectGap={handleSelectGap}
       />
     </div>
   );

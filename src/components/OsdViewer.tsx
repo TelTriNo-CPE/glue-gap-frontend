@@ -7,7 +7,10 @@ interface Props {
   stem: string;
   gaps: Gap[];
   hiddenGapIndices: Set<number>;
+  clickMode: 'select' | 'deselect';
   grayscale: boolean;
+  selectedGapIds: Set<number>;
+  onSelectGap: (id: number | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
 }
 
 // ─── Drawing constants ────────────────────────────────────────────────────────
@@ -15,46 +18,115 @@ const STROKE_COLOR = '#ff0000';
 const FILL_COLOR   = 'rgba(255, 0, 0, 0.12)';
 const LINE_WIDTH   = 2;
 
+// Minimum screen-pixel area to bother drawing during animation (LOD skip)
+const MIN_SCREEN_AREA_ANIMATING = 12;
+
 /**
- * Extract the flat coordinate array from a gap object, trying every field name
- * the backend might use. Logs a warning if none are found.
+ * Draw a closed cardinal spline (Catmull-Rom) through the given screen-space
+ * points. Produces smooth curves through all control points.
+ */
+function drawClosedCardinalSpline(
+  ctx: CanvasRenderingContext2D,
+  pts: { x: number; y: number }[],
+  tension = 0.5,
+) {
+  const n = pts.length;
+  if (n < 3) {
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < n; i++) ctx.lineTo(pts[i].x, pts[i].y);
+    return;
+  }
+
+  const t = 1 - tension;
+
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n];
+    const p1 = pts[i];
+    const p2 = pts[(i + 1) % n];
+    const p3 = pts[(i + 2) % n];
+
+    const cp1x = p1.x + (p2.x - p0.x) * t / 6;
+    const cp1y = p1.y + (p2.y - p0.y) * t / 6;
+    const cp2x = p2.x - (p3.x - p1.x) * t / 6;
+    const cp2y = p2.y - (p3.y - p1.y) * t / 6;
+
+    if (i === 0) ctx.moveTo(p1.x, p1.y);
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+  }
+}
+
+/**
+ * Draw a closed straight-line polygon (fast path for animating).
+ */
+function drawClosedPolyline(
+  ctx: CanvasRenderingContext2D,
+  pts: { x: number; y: number }[],
+) {
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+}
+
+/**
+ * Flatten any coordinate format into a flat [x1,y1,x2,y2,...] array.
+ */
+function flattenCoords(raw: unknown[]): number[] {
+  const out: number[] = [];
+  for (const item of raw) {
+    if (typeof item === 'number') {
+      out.push(item);
+    } else if (Array.isArray(item)) {
+      const inner = Array.isArray(item[0]) ? item[0] : item;
+      for (const v of inner) {
+        if (typeof v === 'number') out.push(v);
+      }
+    } else if (typeof item === 'object' && item !== null) {
+      const o = item as Record<string, unknown>;
+      if (typeof o.x === 'number' && typeof o.y === 'number') {
+        out.push(o.x, o.y);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Extract the flat coordinate array from a gap object.
  */
 function getCoords(gap: unknown): number[] | undefined {
   if (typeof gap !== 'object' || !gap) return undefined;
   const g = gap as Record<string, unknown>;
 
-  // Try every plausible backend field name in priority order
   for (const key of ['coordinates', 'contour', 'contour_pts', 'polygon', 'points', 'vertices']) {
     const val = g[key];
-    if (Array.isArray(val) && val.length >= 6) return val as number[];
+    if (Array.isArray(val) && val.length >= 3) {
+      const flat = flattenCoords(val);
+      if (flat.length >= 6) return flat;
+    }
   }
   return undefined;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, grayscale }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const canvasRef    = useRef<HTMLCanvasElement>(null);
-  const viewerRef    = useRef<OpenSeadragon.Viewer | null>(null);
-  const retryRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Reset to false whenever new gap data arrives so the diagnostic always
-  // fires once per analysis result, not just once per page load.
-  const diagDoneRef = useRef(false);
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, grayscale, selectedGapIds, onSelectGap }: Props) {
+  const containerRef  = useRef<HTMLDivElement>(null);
+  const canvasRef     = useRef<HTMLCanvasElement | null>(null);
+  const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
+  const retryRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const animatingRef  = useRef(false);
+  const rafIdRef      = useRef(0);
 
   const [tilesReady, setTilesReady] = useState(false);
   const [elapsed,    setElapsed]    = useState(0);
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const gapsRef   = useRef<Gap[]>(gaps);
-  const hiddenRef = useRef<Set<number>>(hiddenGapIndices);
+  const gapsRef       = useRef<Gap[]>(gaps);
+  const hiddenRef     = useRef<Set<number>>(hiddenGapIndices);
+  const selectedRef   = useRef<Set<number>>(selectedGapIds);
+  const clickModeRef  = useRef<'select' | 'deselect'>(clickMode);
 
-  // Reset diagnostic flag whenever new gap data arrives so we get a fresh log
-  useEffect(() => {
-    gapsRef.current = gaps;
-    if (gaps.length > 0) diagDoneRef.current = false;
-  }, [gaps]);
-
+  useEffect(() => { gapsRef.current = gaps; }, [gaps]);
   useEffect(() => { hiddenRef.current = hiddenGapIndices; }, [hiddenGapIndices]);
+  useEffect(() => { selectedRef.current = selectedGapIds; }, [selectedGapIds]);
+  useEffect(() => { clickModeRef.current = clickMode; }, [clickMode]);
 
   const startTimer = useCallback(() => {
     setElapsed(0);
@@ -65,8 +137,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, grayscale }: P
     if (elapsedRef.current) { clearInterval(elapsedRef.current); elapsedRef.current = null; }
   }, []);
 
-  // ── Core draw function — stable, reads live state from refs ──────────────
-  const drawPolygons = useCallback(() => {
+  // ── Core draw function ────────────────────────────────────────────────────
+  const drawPolygons = useCallback((forceFullQuality = false) => {
     const viewer = viewerRef.current;
     const canvas = canvasRef.current;
 
@@ -75,112 +147,154 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, grayscale }: P
     const tiledImage = viewer.world.getItemAt(0);
     if (!tiledImage) return;
 
-    // Size the canvas backing buffer to its CSS layout size
-    const w = canvas.offsetWidth;
-    const h = canvas.offsetHeight;
-    if (w === 0 || h === 0) {
-      console.warn('[GlueGap] Canvas has zero dimensions — skipping draw.');
-      return;
-    }
+    // Sync canvas backing buffer to OSD canvas container
+    const osdCanvas = viewer.canvas as HTMLElement;
+    const w = osdCanvas.clientWidth;
+    const h = osdCanvas.clientHeight;
+    if (w === 0 || h === 0) return;
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width  = w;
       canvas.height = h;
     }
 
     const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, w, h);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     const currentGaps   = gapsRef.current;
     const currentHidden = hiddenRef.current;
+    const currentSelected = selectedRef.current;
+
     if (currentGaps.length === 0) return;
 
-    // ── One-shot diagnostic — fires once per analysis result ─────────────
-    if (!diagDoneRef.current) {
-      diagDoneRef.current = true;
+    const isAnimating = animatingRef.current && !forceFullQuality;
 
-      const first = currentGaps[0] as Record<string, unknown>;
-      console.group('[GlueGap] Polygon draw diagnostic');
-      console.log('Gap object keys :', Object.keys(first));
-      console.log('Gap count       :', currentGaps.length);
-      console.log('Canvas size     :', `${w} × ${h}`);
+    // ── 1. Viewport culling: get visible bounds in viewport coords ──────
+    const bounds = viewer.viewport.getBounds(true);
+    const bx1 = bounds.x;
+    const by1 = bounds.y;
+    const bx2 = bounds.x + bounds.width;
+    const by2 = bounds.y + bounds.height;
 
-      const coords = getCoords(first);
-      if (coords) {
-        console.log('Coord field found, first 8 values:', coords.slice(0, 8));
-        try {
-          const vpPt = tiledImage.imageToViewportCoordinates(coords[0], coords[1]);
-          const px   = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
-          console.log(
-            `Coord pipeline  : img(${coords[0]}, ${coords[1]})` +
-            ` → vp(${vpPt.x.toFixed(4)}, ${vpPt.y.toFixed(4)})` +
-            ` → screen(${px.x.toFixed(1)}, ${px.y.toFixed(1)})`,
-          );
-          const inBounds = px.x >= 0 && px.x <= w && px.y >= 0 && px.y <= h;
-          console.log('First point in canvas bounds?', inBounds);
-        } catch (e) {
-          console.error('Coord conversion threw:', e);
-        }
-      } else {
-        console.warn('⚠ No coordinate array found. Tried: coordinates, contour, contour_pts, polygon, points, vertices');
-        console.log('Raw first gap (truncated):', JSON.stringify(first).slice(0, 400));
-      }
-      console.groupEnd();
-    }
-    // ─────────────────────────────────────────────────────────────────────
+    // Image dimensions for denormalization
+    const imgSize = tiledImage.getContentSize();
+    const imgW = imgSize.x;
+    const imgH = imgSize.y;
 
+    // ── 2. Context state batching: set styles ONCE before the loop ──────
     ctx.strokeStyle = STROKE_COLOR;
-    ctx.fillStyle   = FILL_COLOR;
     ctx.lineWidth   = LINE_WIDTH;
+    ctx.fillStyle   = FILL_COLOR;
     ctx.lineJoin    = 'round';
 
     let drawn = 0;
-    let skippedNoCoords = 0;
 
     for (let gi = 0; gi < currentGaps.length; gi++) {
-      if (currentHidden.has(gi)) continue;
+      const isSelected = currentSelected.has(gi);
+      const isHidden = hiddenRef.current.has(gi);
 
-      const coords = getCoords(currentGaps[gi]);
-      if (!coords) { skippedNoCoords++; continue; }
+      // Skip if hidden AND NOT selected (Rule 2 compatibility)
+      if (isHidden && !isSelected) {
+        continue;
+      }
+
+      // ── Viewport culling using centroid_norm ──────────────────────────
+      const gap = currentGaps[gi];
+      const [cx, cy] = gap.centroid_norm; // normalized 0–1
+
+      // Convert centroid to viewport coords for bounds check
+      const centroidVp = viewer.viewport.imageToViewportCoordinates(
+        new OpenSeadragon.Point(cx * imgW, cy * imgH),
+      );
+
+      // Skip if centroid is far outside visible bounds (with margin)
+      const margin = bounds.width * 0.15; // generous margin for large gaps
+      if (
+        centroidVp.x < bx1 - margin || centroidVp.x > bx2 + margin ||
+        centroidVp.y < by1 - margin || centroidVp.y > by2 + margin
+      ) {
+        continue;
+      }
+
+      const coords = getCoords(gap);
+      if (!coords) continue;
+
+      const isNormalized = coords.every(v => v >= 0 && v <= 1);
+
+      // ── 3. LOD: skip tiny gaps during animation ───────────────────────
+      if (isAnimating) {
+        // Estimate screen size from equiv_radius
+        const radiusVp = gap.equiv_radius_px / imgW; // rough viewport-space radius
+        const zoom = viewer.viewport.getZoom(true);
+        const screenRadius = radiusVp * zoom * w;
+        if (screenRadius * screenRadius * Math.PI < MIN_SCREEN_AREA_ANIMATING) {
+          continue;
+        }
+      }
 
       try {
-        ctx.beginPath();
+        // Convert all points to screen space
+        const screenPts: { x: number; y: number }[] = [];
         for (let i = 0; i < coords.length; i += 2) {
-          const vpPt = tiledImage.imageToViewportCoordinates(coords[i], coords[i + 1]);
-          const px   = viewer.viewport.viewportToViewerElementCoordinates(vpPt);
-          if (i === 0) ctx.moveTo(px.x, px.y);
-          else         ctx.lineTo(px.x, px.y);
+          const imgX = isNormalized ? coords[i] * imgW : coords[i];
+          const imgY = isNormalized ? coords[i + 1] * imgH : coords[i + 1];
+
+          const vpPoint = viewer.viewport.imageToViewportCoordinates(
+            new OpenSeadragon.Point(imgX, imgY),
+          );
+          const canvasPoint = viewer.viewport.pixelFromPoint(vpPoint, true);
+          screenPts.push({ x: canvasPoint.x, y: canvasPoint.y });
+        }
+
+        ctx.beginPath();
+        // Use fast straight lines during animation, smooth splines when idle
+        if (isAnimating) {
+          drawClosedPolyline(ctx, screenPts);
+        } else {
+          drawClosedCardinalSpline(ctx, screenPts, 0.5);
         }
         ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
+        if (currentSelected.has(gi)) {
+          ctx.save();
+          ctx.strokeStyle = '#FFD600';
+          ctx.lineWidth = 4;
+          ctx.fillStyle = 'rgba(255, 255, 0, 0.4)';
+          ctx.stroke();
+          ctx.fill();
+          ctx.restore();
+        } else {
+          ctx.stroke();
+          ctx.fill();
+        }
         drawn++;
       } catch {
-        // Skip individual polygons that fail coordinate conversion
+        // Skip individual polygon failures
       }
     }
 
-    // ── Visible fallback: if we have gaps but drew nothing, show a banner ──
     if (drawn === 0 && currentGaps.length > 0) {
-      const msg = skippedNoCoords === currentGaps.length
-        ? `⚠ ${currentGaps.length} gaps loaded but no coordinate field found — check console`
-        : `⚠ ${currentGaps.length} gaps loaded but 0 polygons drawn — check console`;
-
+      const msg = `⚠ ${currentGaps.length} gaps but 0 polygons drawn`;
       ctx.save();
-      ctx.fillStyle   = 'rgba(220,38,38,0.85)';
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth   = 1;
-      const pad = 12;
-      const bh  = 36;
-      ctx.fillRect(0, 0, w, bh);
+      ctx.fillStyle = 'rgba(220,38,38,0.85)';
+      ctx.fillRect(0, 0, w, 36);
       ctx.fillStyle = '#fff';
-      ctx.font      = 'bold 13px ui-sans-serif, sans-serif';
+      ctx.font = 'bold 13px ui-sans-serif, sans-serif';
       ctx.textBaseline = 'middle';
-      ctx.fillText(msg, pad, bh / 2);
+      ctx.fillText(msg, 12, 18);
       ctx.restore();
-
-      console.error(`[GlueGap] ${msg}`);
     }
-  }, []); // stable — reads live data from refs
+  }, []);
+
+  // Throttled draw: coalesce multiple calls per frame into one rAF
+  const scheduleRedraw = useCallback(() => {
+    cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(() => drawPolygons());
+  }, [drawPolygons]);
+
+  // Full-quality redraw (called after animation ends)
+  const scheduleFullRedraw = useCallback(() => {
+    cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(() => drawPolygons(true));
+  }, [drawPolygons]);
 
   // ── Viewer init ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -188,6 +302,19 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, grayscale }: P
 
     setTilesReady(false);
     startTimer();
+
+    // Ray-casting point-in-polygon
+    function isPointInPolygon(point: [number, number], polygon: number[]): boolean {
+      let inside = false;
+      for (let i = 0, j = polygon.length / 2 - 1; i < polygon.length / 2; j = i++) {
+        const xi = polygon[2 * i], yi = polygon[2 * i + 1];
+        const xj = polygon[2 * j], yj = polygon[2 * j + 1];
+        const intersect = ((yi > point[1]) !== (yj > point[1])) &&
+          (point[0] < (xj - xi) * (point[1] - yi) / (yj - yi + 1e-12) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
 
     const viewer = OpenSeadragon({
       element: containerRef.current,
@@ -203,58 +330,125 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, grayscale }: P
     });
     viewerRef.current = viewer;
 
+    // Inject overlay canvas into OSD's own canvas container
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.style.position = 'absolute';
+    overlayCanvas.style.top = '0';
+    overlayCanvas.style.left = '0';
+    overlayCanvas.style.width = '100%';
+    overlayCanvas.style.height = '100%';
+    overlayCanvas.style.pointerEvents = 'none';
+    overlayCanvas.style.zIndex = '1000';
+    (viewer.canvas as HTMLElement).appendChild(overlayCanvas);
+    canvasRef.current = overlayCanvas;
+
     viewer.addHandler('open', () => {
       setTilesReady(true);
       stopTimer();
-      drawPolygons();
+      scheduleFullRedraw();
     });
 
     viewer.addHandler('open-failed', () => {
       retryRef.current = setTimeout(() => viewer.open(getDziUrl(stem)), 2000);
     });
 
-    viewer.addHandler('update-viewport', drawPolygons);
-    viewer.addHandler('animation',       drawPolygons);
-    viewer.addHandler('resize',          drawPolygons);
+    // ── Animation tracking for LOD ──────────────────────────────────────
+    viewer.addHandler('animation-start', () => { animatingRef.current = true; });
+    viewer.addHandler('animation-finish', () => {
+      animatingRef.current = false;
+      scheduleFullRedraw();
+    });
+
+    // Throttled redraws during viewport changes
+    viewer.addHandler('update-viewport', scheduleRedraw);
+    viewer.addHandler('resize', scheduleFullRedraw);
+
+    // Canvas click handler for gap selection
+    viewer.addHandler('canvas-click', function(event) {
+      if (!viewerRef.current || !viewerRef.current.isOpen()) return;
+      const viewportPoint = viewerRef.current.viewport.pointFromPixel(event.position, true);
+      const tiledImage = viewerRef.current.world.getItemAt(0);
+      if (!tiledImage) return;
+      const imgSize = tiledImage.getContentSize();
+      const imgPoint = viewerRef.current.viewport.viewportToImageCoordinates(viewportPoint);
+      const x = imgPoint.x, y = imgPoint.y;
+
+      const currentGaps = gapsRef.current;
+      const currentClickMode = clickModeRef.current;
+
+      let found = null;
+      for (let gi = 0; gi < currentGaps.length; gi++) {
+        const gap = currentGaps[gi];
+        const coords = getCoords(gap);
+        if (!coords) continue;
+        // If normalized, denormalize
+        const isNorm = coords.every(v => v >= 0 && v <= 1);
+        const poly = isNorm ? coords.map((v, i) => v * (i % 2 === 0 ? imgSize.x : imgSize.y)) : coords;
+        if (isPointInPolygon([x, y], poly)) {
+          found = gi;
+          break;
+        }
+      }
+
+      if (currentClickMode === 'select') {
+        if (found !== null) {
+          onSelectGap(found, 'select');
+          event.preventDefaultAction = true;
+        }
+        // In 'select' mode, clicking outside does nothing to current selection
+      } else {
+        // Deselect mode
+        if (found !== null) {
+          onSelectGap(found, 'deselect');
+          event.preventDefaultAction = true;
+        } else {
+          // Clicking anywhere outside clears selection
+          onSelectGap(null, 'clear');
+        }
+      }
+    });
 
     return () => {
+      cancelAnimationFrame(rafIdRef.current);
       if (retryRef.current) clearTimeout(retryRef.current);
       stopTimer();
+      if (canvasRef.current && canvasRef.current.parentNode) {
+        canvasRef.current.parentNode.removeChild(canvasRef.current);
+      }
+      canvasRef.current = null;
       viewer.destroy();
       viewerRef.current = null;
     };
-  }, [stem, startTimer, stopTimer, drawPolygons]);
+  }, [stem, startTimer, stopTimer, scheduleRedraw, scheduleFullRedraw]);
 
-  // ── Redraw whenever gap data or visibility changes ────────────────────────
+  // Redraw whenever gap data or visibility changes
   useEffect(() => {
-    drawPolygons();
-  }, [gaps, hiddenGapIndices, drawPolygons]);
+    scheduleFullRedraw();
+  }, [gaps, hiddenGapIndices, selectedGapIds, scheduleFullRedraw]);
+
+  // Apply grayscale only to OSD's drawing surface, not our overlay
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    const drawerCanvas = viewer.drawer?.canvas as HTMLElement | undefined;
+    if (drawerCanvas) {
+      drawerCanvas.style.filter = grayscale ? 'grayscale(1)' : 'none';
+      drawerCanvas.style.transition = 'filter 0.4s ease';
+    }
+  }, [grayscale]);
 
   return (
     <div className="flex-1 relative bg-black" style={{ minWidth: 0 }}>
 
-      {/* OSD image — grayscale filter only affects tiles, not the polygon canvas */}
+      {/* OSD container — no filter here; grayscale applied to drawer canvas directly */}
       <div
         ref={containerRef}
         className="absolute inset-0"
-        style={{
-          filter: grayscale ? 'grayscale(1)' : 'none',
-          transition: 'filter 0.4s ease',
-        }}
       />
 
-      {/*
-        Polygon canvas — sibling of OSD container so grayscale filter doesn't
-        affect polygon colours. z-index 1 puts it above OSD (z:auto) but below
-        the loading overlay (z-10). pointer-events:none lets OSD handle input.
-      */}
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0"
-        style={{ zIndex: 1, pointerEvents: 'none' }}
-      />
+      {/* Polygon overlay canvas is injected programmatically into viewer.canvas */}
 
-      {/* Loading overlay — z-10 keeps it above the polygon canvas */}
+      {/* Loading overlay */}
       {!tilesReady && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-gray-950 z-10">
           <svg className="w-8 h-8 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24">
