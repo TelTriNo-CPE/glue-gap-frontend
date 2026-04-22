@@ -322,7 +322,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
     });
 
     viewer.addHandler('open-failed', () => {
-      retryRef.current = setTimeout(() => viewer.open(getDziUrl(stem)), 2000);
+      retryRef.current = setTimeout(() => viewer.open(getDziUrl(stem) as unknown as OpenSeadragon.TileSourceSpecifier), 2000);
     });
 
     // ── Animation tracking for LOD ──────────────────────────────────────
@@ -429,20 +429,6 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
                     stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor"
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <p className="text-sm text-gray-400">Preparing image tiles…</p>
-          <p className="text-xs text-gray-600">
-            {elapsed < 10
-              ? 'This may take a moment for large images'
-              : `Still working… ${elapsed}s elapsed`}
-          </p>
-        </div>
-      )}
-
-    </div>
-  );
-}
-   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
           <p className="text-sm text-gray-400">Preparing image tiles…</p>
           <p className="text-xs text-gray-600">
