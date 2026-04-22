@@ -22,41 +22,7 @@ const LINE_WIDTH   = 2;
 const MIN_SCREEN_AREA_ANIMATING = 12;
 
 /**
- * Draw a closed cardinal spline (Catmull-Rom) through the given screen-space
- * points. Produces smooth curves through all control points.
- */
-function drawClosedCardinalSpline(
-  ctx: CanvasRenderingContext2D,
-  pts: { x: number; y: number }[],
-  tension = 0.5,
-) {
-  const n = pts.length;
-  if (n < 3) {
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < n; i++) ctx.lineTo(pts[i].x, pts[i].y);
-    return;
-  }
-
-  const t = 1 - tension;
-
-  for (let i = 0; i < n; i++) {
-    const p0 = pts[(i - 1 + n) % n];
-    const p1 = pts[i];
-    const p2 = pts[(i + 1) % n];
-    const p3 = pts[(i + 2) % n];
-
-    const cp1x = p1.x + (p2.x - p0.x) * t / 6;
-    const cp1y = p1.y + (p2.y - p0.y) * t / 6;
-    const cp2x = p2.x - (p3.x - p1.x) * t / 6;
-    const cp2y = p2.y - (p3.y - p1.y) * t / 6;
-
-    if (i === 0) ctx.moveTo(p1.x, p1.y);
-    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-  }
-}
-
-/**
- * Draw a closed straight-line polygon (fast path for animating).
+ * Draw a closed straight-line polygon through the given screen-space points.
  */
 function drawClosedPolyline(
   ctx: CanvasRenderingContext2D,
@@ -184,7 +150,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
     ctx.strokeStyle = STROKE_COLOR;
     ctx.lineWidth   = LINE_WIDTH;
     ctx.fillStyle   = FILL_COLOR;
-    ctx.lineJoin    = 'round';
+    ctx.lineJoin    = 'miter';
 
     let drawn = 0;
 
@@ -246,12 +212,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
         }
 
         ctx.beginPath();
-        // Use fast straight lines during animation, smooth splines when idle
-        if (isAnimating) {
-          drawClosedPolyline(ctx, screenPts);
-        } else {
-          drawClosedCardinalSpline(ctx, screenPts, 0.5);
-        }
+        drawClosedPolyline(ctx, screenPts);
         ctx.closePath();
         if (currentSelected.has(gi)) {
           ctx.save();
