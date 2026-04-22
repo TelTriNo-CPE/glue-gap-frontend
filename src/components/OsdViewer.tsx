@@ -163,28 +163,35 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
         continue;
       }
 
-      // ── Viewport culling using centroid_norm ──────────────────────────
       const gap = currentGaps[gi];
-      const [cx, cy] = gap.centroid_norm; // normalized 0–1
-
-      // Convert centroid to viewport coords for bounds check
-      const centroidVp = viewer.viewport.imageToViewportCoordinates(
-        new OpenSeadragon.Point(cx * imgW, cy * imgH),
-      );
-
-      // Skip if centroid is far outside visible bounds (with margin)
-      const margin = bounds.width * 0.15; // generous margin for large gaps
-      if (
-        centroidVp.x < bx1 - margin || centroidVp.x > bx2 + margin ||
-        centroidVp.y < by1 - margin || centroidVp.y > by2 + margin
-      ) {
-        continue;
-      }
-
       const coords = getCoords(gap);
       if (!coords) continue;
 
       const isNormalized = coords.every(v => v >= 0 && v <= 1);
+
+      // ── Viewport culling using polygon AABB ──────────────────────────
+      let aabbMinX = Infinity, aabbMinY = Infinity;
+      let aabbMaxX = -Infinity, aabbMaxY = -Infinity;
+      for (let i = 0; i < coords.length; i += 2) {
+        const imgX = isNormalized ? coords[i] * imgW : coords[i];
+        const imgY = isNormalized ? coords[i + 1] * imgH : coords[i + 1];
+        if (imgX < aabbMinX) aabbMinX = imgX;
+        if (imgX > aabbMaxX) aabbMaxX = imgX;
+        if (imgY < aabbMinY) aabbMinY = imgY;
+        if (imgY > aabbMaxY) aabbMaxY = imgY;
+      }
+
+      const vpMin = viewer.viewport.imageToViewportCoordinates(
+        new OpenSeadragon.Point(aabbMinX, aabbMinY),
+      );
+      const vpMax = viewer.viewport.imageToViewportCoordinates(
+        new OpenSeadragon.Point(aabbMaxX, aabbMaxY),
+      );
+
+      // Skip only if the polygon's bounding box is completely outside viewport
+      if (vpMax.x < bx1 || vpMin.x > bx2 || vpMax.y < by1 || vpMin.y > by2) {
+        continue;
+      }
 
       // ── 3. LOD: skip tiny gaps during animation ───────────────────────
       if (isAnimating) {
