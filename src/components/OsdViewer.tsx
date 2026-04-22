@@ -442,3 +442,17 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
     </div>
   );
 }
+   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <p className="text-sm text-gray-400">Preparing image tiles…</p>
+          <p className="text-xs text-gray-600">
+            {elapsed < 10
+              ? 'This may take a moment for large images'
+              : `Still working… ${elapsed}s elapsed`}
+          </p>
+        </div>
+      )}
+
+    </div>
+  );
+}
