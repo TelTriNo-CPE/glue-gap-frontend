@@ -96,10 +96,9 @@ export default function Toolbar({ stem, fileKey, isGreyscale, hasResult, analyzi
 
       <Divider />
 
-      {/* Step 1: Change to Greyscale */}
+      {/* Toggle Greyscale / Color */}
       <button
         onClick={onGreyscale}
-        disabled={isGreyscale}
         className={`${btnClass} ${isGreyscale ? 'text-blue-400' : ''}`}
       >
         <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -107,11 +106,11 @@ export default function Toolbar({ stem, fileKey, isGreyscale, hasResult, analyzi
             d="M12 3v18M9 6.343A8 8 0 1 0 15 17.657" />
           <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
-        {isGreyscale ? 'Greyscale Applied' : 'Change to Greyscale'}
+        {isGreyscale ? 'Switch to Color' : 'Switch to Greyscale'}
       </button>
 
-      {/* Step 2: Start Detection — only shown after greyscale is applied */}
-      {isGreyscale && (
+      {/* Step 2: Start Detection — shown after greyscale is applied, or when results exist */}
+      {(isGreyscale || hasResult) && (
         <button
           onClick={onDetect}
           disabled={hasResult || analyzing}

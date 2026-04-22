@@ -34,7 +34,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   }, [toast]);
 
   function handleGreyscale() {
-    setGrayscale(true);
+    setGrayscale(prev => !prev);
   }
 
   function handleSelectGap(
