@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { AnalysisResult, Gap } from '../types';
 import RadiusStatsPanel from './RadiusChart';
@@ -124,6 +124,9 @@ interface GapListProps {
 function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap }: GapListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
+
+  // All gap indices — when viewport-sync filtering is wired up, this can be narrowed
+  const displayIndices = useMemo(() => gaps.map((_, i) => i), [gaps]);
 
   const virtualizer = useVirtualizer({
     count: gaps.length,
