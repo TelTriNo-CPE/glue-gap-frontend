@@ -215,6 +215,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         grayscale={grayscale}
         selectedGapIds={selectedGapIds}
         onSelectGap={handleSelectGap}
+        onVisibleGapsChange={setVisibleGapIdsInViewport}
       />
       <ResultsPanel
         result={result}
@@ -225,6 +226,9 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         onHideAllGaps={hideAllGaps}
         selectedGapIds={selectedGapIds}
         onSelectGap={handleSelectGap}
+        isSyncViewport={isSyncViewport}
+        onToggleSyncViewport={() => setIsSyncViewport(prev => !prev)}
+        visibleGapIdsInViewport={visibleGapIdsInViewport}
       />
     </div>
   );

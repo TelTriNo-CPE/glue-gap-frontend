@@ -198,6 +198,10 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
         continue;
       }
 
+      // Track this gap as viewport-visible (before LOD skip, so the list
+      // includes all gaps intersecting the viewport regardless of size)
+      visibleGaps.add(gi);
+
       // ── 3. LOD: skip tiny gaps during animation ───────────────────────
       if (isAnimating) {
         // Estimate screen size from equiv_radius
@@ -241,6 +245,22 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
         drawn++;
       } catch {
         // Skip individual polygon failures
+      }
+    }
+
+    // Report visible gap IDs to parent — only on resting/full-quality draws
+    // to avoid hammering React state on every animation frame
+    if (forceFullQuality && onVisibleGapsChangeRef.current) {
+      const last = lastVisibleGapsRef.current;
+      let changed = visibleGaps.size !== last.size;
+      if (!changed) {
+        for (const id of visibleGaps) {
+          if (!last.has(id)) { changed = true; break; }
+        }
+      }
+      if (changed) {
+        lastVisibleGapsRef.current = visibleGaps;
+        onVisibleGapsChangeRef.current(visibleGaps);
       }
     }
 

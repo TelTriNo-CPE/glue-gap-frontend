@@ -12,9 +12,12 @@ interface Props {
   onToggleGap: (index: number) => void;
   selectedGapIds: Set<number>;
   onSelectGap: (id: number | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
+  isSyncViewport: boolean;
+  onToggleSyncViewport: () => void;
+  visibleGapIdsInViewport: Set<number>;
 }
 
-export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap }: Props) {
+export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport }: Props) {
   const allHidden = result ? hiddenGapIndices.size === result.gaps.length : false;
 
   return (
@@ -101,6 +104,9 @@ export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAl
               onToggleGap={onToggleGap}
               selectedGapIds={selectedGapIds}
               onSelectGap={onSelectGap}
+              isSyncViewport={isSyncViewport}
+              onToggleSyncViewport={onToggleSyncViewport}
+              visibleGapIdsInViewport={visibleGapIdsInViewport}
             />
           )}
         </>
@@ -119,17 +125,23 @@ interface GapListProps {
   onToggleGap: (index: number) => void;
   selectedGapIds: Set<number>;
   onSelectGap: (id: number | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
+  isSyncViewport: boolean;
+  onToggleSyncViewport: () => void;
+  visibleGapIdsInViewport: Set<number>;
 }
 
-function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap }: GapListProps) {
+function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport }: GapListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
 
-  // All gap indices — when viewport-sync filtering is wired up, this can be narrowed
-  const displayIndices = useMemo(() => gaps.map((_, i) => i), [gaps]);
+  const displayIndices = useMemo(() => {
+    const all = gaps.map((_, i) => i);
+    if (!isSyncViewport) return all;
+    return all.filter(i => visibleGapIdsInViewport.has(i));
+  }, [gaps, isSyncViewport, visibleGapIdsInViewport]);
 
   const virtualizer = useVirtualizer({
-    count: gaps.length,
+    count: displayIndices.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ITEM_HEIGHT,
     overscan: 10,
@@ -152,11 +164,20 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      {/* Section header — fixed, outside the scroll */}
-      <div className="px-4 py-2.5 border-b border-gray-100 shrink-0">
+      {/* Section header + viewport sync toggle — fixed, outside the scroll */}
+      <div className="px-4 py-2.5 border-b border-gray-100 shrink-0 flex flex-col gap-1.5">
         <h3 className="text-xs font-semibold text-gray-500 uppercase">
           Gaps ({displayIndices.length.toLocaleString()}{displayIndices.length !== gaps.length ? ` / ${gaps.length.toLocaleString()}` : ''})
         </h3>
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={isSyncViewport}
+            onChange={onToggleSyncViewport}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+          />
+          <span className="text-[11px] text-gray-400">Show only visible on screen</span>
+        </label>
       </div>
 
       {/* Scrollable viewport — the virtualizer measures this element */}
