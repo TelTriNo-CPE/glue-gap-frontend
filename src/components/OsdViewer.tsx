@@ -11,6 +11,7 @@ interface Props {
   grayscale: boolean;
   selectedGapIds: Set<number>;
   onSelectGap: (id: number | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
+  onVisibleGapsChange?: (visibleIds: Set<number>) => void;
 }
 
 // ─── Drawing constants ────────────────────────────────────────────────────────
@@ -72,7 +73,7 @@ function getCoords(gap: unknown): number[] | undefined {
   return undefined;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, grayscale, selectedGapIds, onSelectGap }: Props) {
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -88,11 +89,14 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
   const hiddenRef     = useRef<Set<number>>(hiddenGapIndices);
   const selectedRef   = useRef<Set<number>>(selectedGapIds);
   const clickModeRef  = useRef<'select' | 'deselect'>(clickMode);
+  const onVisibleGapsChangeRef = useRef(onVisibleGapsChange);
+  const lastVisibleGapsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => { gapsRef.current = gaps; }, [gaps]);
   useEffect(() => { hiddenRef.current = hiddenGapIndices; }, [hiddenGapIndices]);
   useEffect(() => { selectedRef.current = selectedGapIds; }, [selectedGapIds]);
   useEffect(() => { clickModeRef.current = clickMode; }, [clickMode]);
+  useEffect(() => { onVisibleGapsChangeRef.current = onVisibleGapsChange; }, [onVisibleGapsChange]);
 
   const startTimer = useCallback(() => {
     setElapsed(0);
@@ -153,6 +157,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
     ctx.lineJoin    = 'miter';
 
     let drawn = 0;
+    const visibleGaps = new Set<number>();
 
     for (let gi = 0; gi < currentGaps.length; gi++) {
       const isSelected = currentSelected.has(gi);
@@ -424,6 +429,20 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
                     stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor"
                   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <p className="text-sm text-gray-400">Preparing image tiles…</p>
+          <p className="text-xs text-gray-600">
+            {elapsed < 10
+              ? 'This may take a moment for large images'
+              : `Still working… ${elapsed}s elapsed`}
+          </p>
+        </div>
+      )}
+
+    </div>
+  );
+}
+   d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
           </svg>
           <p className="text-sm text-gray-400">Preparing image tiles…</p>
           <p className="text-xs text-gray-600">

@@ -25,6 +25,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [grayscale,        setGrayscale]         = useState(false);
   const [hiddenGapIndices, setHiddenGapIndices]  = useState<Set<number>>(new Set());
   const [clickMode,        setClickMode]         = useState<'select' | 'deselect'>('select');
+  const [isSyncViewport,   setIsSyncViewport]    = useState(false);
+  const [visibleGapIdsInViewport, setVisibleGapIdsInViewport] = useState<Set<number>>(new Set());
 
   // Auto-dismiss toast after TOAST_DURATION_MS
   useEffect(() => {
