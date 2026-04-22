@@ -138,18 +138,21 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
     const latest = Array.from(selectedGapIds).pop();
     if (latest !== undefined && latest !== lastSelectedId) {
       setLastSelectedId(latest);
-      virtualizer.scrollToIndex(latest, { align: 'center' });
+      const displayIndex = displayIndices.indexOf(latest);
+      if (displayIndex !== -1) {
+        virtualizer.scrollToIndex(displayIndex, { align: 'center' });
+      }
     } else if (selectedGapIds.size === 0) {
       setLastSelectedId(null);
     }
-  }, [selectedGapIds, virtualizer, lastSelectedId]);
+  }, [selectedGapIds, virtualizer, lastSelectedId, displayIndices]);
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Section header — fixed, outside the scroll */}
       <div className="px-4 py-2.5 border-b border-gray-100 shrink-0">
         <h3 className="text-xs font-semibold text-gray-500 uppercase">
-          Gaps ({gaps.length.toLocaleString()})
+          Gaps ({displayIndices.length.toLocaleString()}{displayIndices.length !== gaps.length ? ` / ${gaps.length.toLocaleString()}` : ''})
         </h3>
       </div>
 
@@ -158,10 +161,11 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
         {/* Spacer div that gives the scrollbar its full range */}
         <div style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
           {virtualizer.getVirtualItems().map(vRow => {
-            const gap = gaps[vRow.index];
-            const isHidden = hiddenGapIndices.has(vRow.index);
+            const originalIndex = displayIndices[vRow.index];
+            const gap = gaps[originalIndex];
+            const isHidden = hiddenGapIndices.has(originalIndex);
 
-            const isSelected = selectedGapIds.has(vRow.index);
+            const isSelected = selectedGapIds.has(originalIndex);
 
             return (
               <div
@@ -176,7 +180,7 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
                 }}
               >
                 <div
-                  onClick={() => onSelectGap(vRow.index, 'toggle')}
+                  onClick={() => onSelectGap(originalIndex, 'toggle')}
                   className={`flex items-center gap-2 h-full px-4 text-sm cursor-pointer
                     transition-colors
                     ${isSelected
@@ -185,15 +189,15 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
                     ${isHidden ? 'opacity-40' : ''}`}
                 >
                   <button
-                    onClick={(e) => { e.stopPropagation(); onToggleGap(vRow.index); }}
+                    onClick={(e) => { e.stopPropagation(); onToggleGap(originalIndex); }}
                     title={isHidden ? 'Show overlay' : 'Hide overlay'}
                     className="shrink-0 text-gray-400 hover:text-gray-700 transition-colors"
-                    aria-label={`Toggle visibility for gap ${vRow.index + 1}`}
+                    aria-label={`Toggle visibility for gap ${originalIndex + 1}`}
                   >
                     {isHidden ? <EyeOffIcon /> : <EyeIcon />}
                   </button>
                   <span className={`flex-1 ${isSelected ? 'text-yellow-800 font-medium' : 'text-gray-700'}`}>
-                    Gap {vRow.index + 1}
+                    Gap {originalIndex + 1}
                   </span>
                   <span className={`text-xs font-mono text-right leading-tight ${isSelected ? 'text-yellow-700' : 'text-gray-400'}`}>
                     r={gap.equiv_radius_px.toFixed(1)} px<br/>
