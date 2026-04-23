@@ -11,7 +11,7 @@ interface Props {
   onHideAllGaps: () => void;
   onToggleGap: (index: number) => void;
   selectedGapIds: Set<number>;
-  onSelectGap: (id: number | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
+  onSelectGap: (id: number | number[] | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
   isSyncViewport: boolean;
   onToggleSyncViewport: () => void;
   visibleGapIdsInViewport: Set<number>;
@@ -124,7 +124,7 @@ interface GapListProps {
   hiddenGapIndices: Set<number>;
   onToggleGap: (index: number) => void;
   selectedGapIds: Set<number>;
-  onSelectGap: (id: number | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
+  onSelectGap: (id: number | number[] | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
   isSyncViewport: boolean;
   onToggleSyncViewport: () => void;
   visibleGapIdsInViewport: Set<number>;
@@ -133,6 +133,7 @@ interface GapListProps {
 function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport }: GapListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
+  const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
 
   const displayIndices = useMemo(() => {
     const all = gaps.map((_, i) => i);
@@ -161,6 +162,20 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
       setLastSelectedId(null);
     }
   }, [selectedGapIds, virtualizer, lastSelectedId, displayIndices]);
+
+  const handleItemClick = (e: React.MouseEvent, currentIndex: number) => {
+    const originalIndex = displayIndices[currentIndex];
+    
+    if (e.shiftKey && lastSelectedIndex !== null) {
+      const start = Math.min(lastSelectedIndex, currentIndex);
+      const end = Math.max(lastSelectedIndex, currentIndex);
+      const idsInRange = displayIndices.slice(start, end + 1);
+      onSelectGap(idsInRange, 'select');
+    } else {
+      onSelectGap(originalIndex, 'toggle');
+      setLastSelectedIndex(currentIndex);
+    }
+  };
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
@@ -204,9 +219,9 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
                 }}
               >
                 <div
-                  onClick={() => onSelectGap(originalIndex, 'toggle')}
+                  onClick={(e) => handleItemClick(e, vRow.index)}
                   className={`flex items-center gap-2 h-full px-4 text-sm cursor-pointer
-                    transition-colors
+                    transition-colors select-none
                     ${isSelected
                       ? 'bg-yellow-100 border-l-4 border-yellow-400'
                       : 'hover:bg-gray-50 border-l-4 border-transparent'}

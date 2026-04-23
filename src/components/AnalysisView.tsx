@@ -40,7 +40,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   }
 
   function handleSelectGap(
-    id: number | null,
+    id: number | number[] | null,
     mode: 'select' | 'deselect' | 'toggle' | 'clear' = 'select'
   ) {
     if (id === null || mode === 'clear') {
@@ -48,37 +48,38 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       return;
     }
 
-    let wasAdded = false;
+    const ids = Array.isArray(id) ? id : [id];
+
     setSelectedGapIds(prev => {
       const next = new Set(prev);
-      if (mode === 'toggle') {
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-          wasAdded = true;
+      for (const currentId of ids) {
+        if (mode === 'toggle') {
+          if (next.has(currentId)) {
+            next.delete(currentId);
+          } else {
+            next.add(currentId);
+          }
+        } else if (mode === 'select') {
+          next.add(currentId);
+        } else if (mode === 'deselect') {
+          next.delete(currentId);
         }
-      } else if (mode === 'select') {
-        if (!next.has(id)) {
-          next.add(id);
-          wasAdded = true;
-        }
-      } else if (mode === 'deselect') {
-        next.delete(id);
       }
       return next;
     });
 
     // Rule 5: Auto-unhide if it was added to the selection
-    // Note: Since wasAdded is captured in the closure, it might be stale if multiple
-    // calls happen in one turn, but for single clicks this is reliable.
-    // Better: Always remove from hidden if we are in 'select' or 'toggle' (optimistic)
     if (mode === 'select' || mode === 'toggle') {
       setHiddenGapIndices(prev => {
-        if (!prev.has(id)) return prev;
         const next = new Set(prev);
-        next.delete(id);
-        return next;
+        let changed = false;
+        for (const currentId of ids) {
+          if (next.has(currentId)) {
+            next.delete(currentId);
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
       });
     }
   }
