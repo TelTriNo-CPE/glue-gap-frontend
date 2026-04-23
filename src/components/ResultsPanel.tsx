@@ -134,12 +134,27 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
   const scrollRef = useRef<HTMLDivElement>(null);
   const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<'all' | 'selected'>('all');
+
+  const selectedCount = selectedGapIds.size;
+
+  // Auto-switch to "all" if "selected" becomes empty
+  useEffect(() => {
+    if (activeTab === 'selected' && selectedCount === 0) {
+      setActiveTab('all');
+    }
+  }, [selectedCount, activeTab]);
 
   const displayIndices = useMemo(() => {
+    if (activeTab === 'selected') {
+      // Sort them so they appear in order of index even if selected out of order
+      return Array.from(selectedGapIds).sort((a, b) => a - b);
+    }
+
     const all = gaps.map((_, i) => i);
     if (!isSyncViewport) return all;
     return all.filter(i => visibleGapIdsInViewport.has(i));
-  }, [gaps, isSyncViewport, visibleGapIdsInViewport]);
+  }, [gaps, isSyncViewport, visibleGapIdsInViewport, activeTab, selectedGapIds]);
 
   const virtualizer = useVirtualizer({
     count: displayIndices.length,
@@ -179,8 +194,32 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
+      {/* Tab Control */}
+      <div className="flex border-b border-gray-100 bg-gray-50/50 p-1 gap-1">
+        <button
+          onClick={() => setActiveTab('all')}
+          className={`flex-1 py-1.5 text-[11px] font-semibold uppercase tracking-wider rounded transition-all
+            ${activeTab === 'all' 
+              ? 'bg-white text-blue-600 shadow-sm border border-gray-200' 
+              : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100/50'}`}
+        >
+          All Gaps
+        </button>
+        <button
+          onClick={() => setActiveTab('selected')}
+          disabled={selectedCount === 0}
+          className={`flex-1 py-1.5 text-[11px] font-semibold uppercase tracking-wider rounded transition-all
+            ${activeTab === 'selected' 
+              ? 'bg-white text-blue-600 shadow-sm border border-gray-200' 
+              : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100/50 disabled:opacity-30 disabled:hover:bg-transparent'}`}
+        >
+          Selected ({selectedCount})
+        </button>
+      </div>
+
       {/* Section header + viewport sync toggle — fixed, outside the scroll */}
-      <div className="px-4 py-2.5 border-b border-gray-100 shrink-0 flex flex-col gap-1.5">
+      <div className={`px-4 py-2.5 border-b border-gray-100 shrink-0 flex flex-col gap-1.5 transition-all
+        ${activeTab === 'selected' ? 'opacity-40 pointer-events-none grayscale' : ''}`}>
         <h3 className="text-xs font-semibold text-gray-500 uppercase">
           Gaps ({displayIndices.length.toLocaleString()}{displayIndices.length !== gaps.length ? ` / ${gaps.length.toLocaleString()}` : ''})
         </h3>
