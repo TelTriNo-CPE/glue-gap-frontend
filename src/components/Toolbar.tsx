@@ -170,9 +170,21 @@ export default function Toolbar({
         <>
           <Divider />
           <div className="px-1 py-2 flex flex-col gap-3">
-            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block px-1">
-              Detection Settings
-            </label>
+            <div className="flex items-center justify-between px-1">
+              <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+                Detection Settings
+              </label>
+              <button
+                onClick={() => {
+                  onSensitivityChange(50);
+                  onMinAreaChange(20);
+                }}
+                className="text-[10px] font-bold text-blue-500 hover:text-blue-400 uppercase tracking-tight transition-colors"
+                title="Reset to defaults (50, 20px)"
+              >
+                Reset
+              </button>
+            </div>
 
             {/* Sensitivity slider */}
             <div className="flex flex-col gap-1 px-1">

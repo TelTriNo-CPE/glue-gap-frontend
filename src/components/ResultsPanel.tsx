@@ -21,9 +21,10 @@ interface Props {
   detectionHistory: DetectionVersion[];
   activeVersionId: string | null;
   onSwitchVersion: (id: string) => void;
+  onDeleteVersion: (id: string) => void;
 }
 
-export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, detectionHistory, activeVersionId, onSwitchVersion }: Props) {
+export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, detectionHistory, activeVersionId, onSwitchVersion, onDeleteVersion }: Props) {
   const allHidden = result ? hiddenGapIndices.size === result.gaps.length : false;
   
   const [topSectionHeight, setTopSectionHeight] = useState(350);
@@ -91,20 +92,27 @@ export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAl
             className="flex flex-col overflow-y-auto shrink-0 bg-white"
           >
             {/* Version selector */}
-            {detectionHistory.length > 1 && activeVersionId && (
-              <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50">
+            {detectionHistory.length > 0 && activeVersionId && (
+              <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50 flex items-center gap-2">
                 <select
                   value={activeVersionId}
                   onChange={e => onSwitchVersion(e.target.value)}
-                  className="w-full text-xs bg-white border border-gray-200 rounded-md px-2 py-1.5
+                  className="flex-1 text-xs bg-white border border-gray-200 rounded-md px-2 py-1.5
                             text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 >
                   {detectionHistory.map(v => (
                     <option key={v.id} value={v.id}>
-                      v{v.versionNumber} (Sens: {v.params.sensitivity}, Min: {v.params.minArea}) — {v.timestamp.toLocaleTimeString()}
+                      v{v.versionNumber} (Sens: {v.params.sensitivity}, Min: {v.params.minArea})
                     </option>
                   ))}
                 </select>
+                <button
+                  onClick={() => onDeleteVersion(activeVersionId)}
+                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-md transition-all"
+                  title="Delete this version"
+                >
+                  <TrashIcon />
+                </button>
               </div>
             )}
 
@@ -421,6 +429,14 @@ function EyeOffIcon() {
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round"
         d="M3.98 8.223A10.477 10.477 0 0 0 1.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.451 10.451 0 0 1 12 4.5c4.756 0 8.773 3.162 10.065 7.498a10.522 10.522 0 0 1-4.293 5.774M6.228 6.228 3 3m3.228 3.228 3.65 3.65m7.894 7.894L21 21m-3.228-3.228-3.65-3.65m0 0a3 3 0 1 0-4.243-4.243m4.242 4.242L9.88 9.88" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.342 10.822m-5.512 0L8.54 9m4.836-9.178a.75.75 0 0 1 .197.89l-.11.228m-2.203-1.118a.75.75 0 0 0-.197.89l.11.228M3.75 5.25h16.5m-14.25 0v13.5A2.25 2.25 0 0 0 8.25 21h7.5a2.25 2.25 0 0 0 2.25-2.25V5.25m-12 0V3.75A2.25 2.25 0 0 1 10.5 1.5h3a2.25 2.25 0 0 1 2.25 2.25V5.25" />
     </svg>
   );
 }

@@ -125,6 +125,28 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     setVisibleGapIdsInViewport(new Set());
   }
 
+  function deleteVersion(versionId: string) {
+    if (!window.confirm('Are you sure you want to delete this version?')) return;
+
+    setDetectionHistory(prev => {
+      const next = prev.filter(v => v.id !== versionId);
+
+      if (activeVersionId === versionId) {
+        if (next.length > 0) {
+          // Set to the most recent one (last in array)
+          setActiveVersionId(next[next.length - 1].id);
+        } else {
+          // History empty, full reset
+          setActiveVersionId(null);
+          setSelectedGapIds(new Set());
+          setHiddenGapIndices(new Set());
+          setVisibleGapIdsInViewport(new Set());
+        }
+      }
+      return next;
+    });
+  }
+
   async function handleDetect() {
     setAnalyzing(true);
     setAnalyzeError(null);
@@ -270,6 +292,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         detectionHistory={detectionHistory}
         activeVersionId={activeVersionId}
         onSwitchVersion={switchVersion}
+        onDeleteVersion={deleteVersion}
       />
     </div>
   );
