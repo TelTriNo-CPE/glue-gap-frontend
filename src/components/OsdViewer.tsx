@@ -9,6 +9,7 @@ interface Props {
   hiddenGapIndices: Set<number>;
   hideUnselected: boolean;
   isOutlineOnly: boolean;
+  showMinimap: boolean;
   clickMode: 'select' | 'deselect';
   grayscale: boolean;
   selectedGapIds: Set<number>;
@@ -75,7 +76,7 @@ function getCoords(gap: unknown): number[] | undefined {
   return undefined;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange }: Props) {
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -443,6 +444,14 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       drawerCanvas.style.transition = 'filter 0.4s ease';
     }
   }, [grayscale]);
+
+  // Minimap toggle effect
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (viewer && (viewer as any).navigator) {
+      (viewer as any).navigator.element.style.display = showMinimap ? 'block' : 'none';
+    }
+  }, [showMinimap]);
 
   return (
     <div className="flex-1 relative bg-black" style={{ minWidth: 0 }}>

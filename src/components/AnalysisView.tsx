@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import type { AnalysisResult, DetectionParams, DetectionVersion } from '../types';
 import Toolbar from './Toolbar';
@@ -16,6 +16,8 @@ const TOAST_DURATION_MS  = 10_000;
 export default function AnalysisView({ fileKey, onReset }: Props) {
   const [selectedGapIds, setSelectedGapIds] = useState<Set<number>>(new Set());
   const stem = fileKey.replace(/\.[^.]+$/, '');
+  
+  const viewerContainerRef = useRef<HTMLDivElement>(null);
 
   const [detectionHistory, setDetectionHistory]  = useState<DetectionVersion[]>([]);
   const [activeVersionId,  setActiveVersionId]   = useState<string | null>(null);
@@ -35,6 +37,27 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [visibleGapIdsInViewport, setVisibleGapIdsInViewport] = useState<Set<number>>(new Set());
   const [sensitivity,  setSensitivity]  = useState(50);
   const [minArea,      setMinArea]      = useState(20);
+  const [showMinimap,  setShowMinimap]  = useState(true);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Sync fullscreen state with native browser event (e.g. Esc key)
+  useEffect(() => {
+    const handler = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      viewerContainerRef.current?.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message}`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  }
 
   // Auto-dismiss toast after TOAST_DURATION_MS
   useEffect(() => {
@@ -245,38 +268,48 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         </div>
       )}
 
-      <Toolbar
-        stem={stem}
-        fileKey={fileKey}
-        isGreyscale={grayscale}
-        hideUnselected={hideUnselected}
-        isOutlineOnly={isOutlineOnly}
-        hasResult={result !== null}
-        analyzing={overlayVisible}
-        onGreyscale={handleGreyscale}
-        onToggleHideUnselected={() => setHideUnselected(prev => !prev)}
-        onToggleOutlineOnly={() => setIsOutlineOnly(prev => !prev)}
-        onDetect={handleDetect}
-        onReset={onReset}
-        clickMode={clickMode}
-        setClickMode={setClickMode}
-        sensitivity={sensitivity}
-        onSensitivityChange={setSensitivity}
-        minArea={minArea}
-        onMinAreaChange={setMinArea}
-      />
-      <OsdViewer
-        stem={stem}
-        gaps={result?.gaps ?? []}
-        hiddenGapIndices={hiddenGapIndices}
-        hideUnselected={hideUnselected}
-        isOutlineOnly={isOutlineOnly}
-        clickMode={clickMode}
-        grayscale={grayscale}
-        selectedGapIds={selectedGapIds}
-        onSelectGap={handleSelectGap}
-        onVisibleGapsChange={setVisibleGapIdsInViewport}
-      />
+      <div 
+        ref={viewerContainerRef}
+        className="flex flex-1 min-w-0 bg-gray-950 relative"
+      >
+        <Toolbar
+          stem={stem}
+          fileKey={fileKey}
+          isGreyscale={grayscale}
+          hideUnselected={hideUnselected}
+          isOutlineOnly={isOutlineOnly}
+          hasResult={result !== null}
+          analyzing={overlayVisible}
+          onGreyscale={handleGreyscale}
+          onToggleHideUnselected={() => setHideUnselected(prev => !prev)}
+          onToggleOutlineOnly={() => setIsOutlineOnly(prev => !prev)}
+          onDetect={handleDetect}
+          onReset={onReset}
+          clickMode={clickMode}
+          setClickMode={setClickMode}
+          sensitivity={sensitivity}
+          onSensitivityChange={setSensitivity}
+          minArea={minArea}
+          onMinAreaChange={setMinArea}
+          showMinimap={showMinimap}
+          onToggleMinimap={() => setShowMinimap(prev => !prev)}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={toggleFullscreen}
+        />
+        <OsdViewer
+          stem={stem}
+          gaps={result?.gaps ?? []}
+          hiddenGapIndices={hiddenGapIndices}
+          hideUnselected={hideUnselected}
+          isOutlineOnly={isOutlineOnly}
+          showMinimap={showMinimap}
+          clickMode={clickMode}
+          grayscale={grayscale}
+          selectedGapIds={selectedGapIds}
+          onSelectGap={handleSelectGap}
+          onVisibleGapsChange={setVisibleGapIdsInViewport}
+        />
+      </div>
       <ResultsPanel
         result={result}
         error={analyzeError}

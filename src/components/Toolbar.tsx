@@ -20,6 +20,10 @@ interface Props {
   onSensitivityChange: (value: number) => void;
   minArea: number;
   onMinAreaChange: (value: number) => void;
+  showMinimap: boolean;
+  onToggleMinimap: () => void;
+  isFullscreen: boolean;
+  onToggleFullscreen: () => void;
 }
 
 const btnClass =
@@ -65,6 +69,10 @@ export default function Toolbar({
   onSensitivityChange,
   minArea,
   onMinAreaChange,
+  showMinimap,
+  onToggleMinimap,
+  isFullscreen,
+  onToggleFullscreen,
 }: Props) {
   const [busy, setBusy] = useState<'excel' | 'jpeg' | null>(null);
 
@@ -150,6 +158,34 @@ export default function Toolbar({
           <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
         </svg>
         {isOutlineOnly ? 'Show Fill' : 'Outline Only'}
+      </button>
+
+      {/* Minimap Toggle */}
+      <button
+        onClick={onToggleMinimap}
+        className={`${btnClass} ${showMinimap ? 'text-blue-400' : ''}`}
+      >
+        <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m6-10.5v.008H15V4.5m0 6v.008H15V10.5m0 6v.008H15V16.5m-6-9h.008v.008H9V7.5m0 6h.008v.008H9v-.008Zm-3-1.5h.008v.008H6V12m0-6h.008v.008H6V6m0 12h.008v.008H6v-.008Zm12-1.5h.008v.008H18v-.008Zm0-6h.008v.008H18V6.152a3 3 0 0 0-3-3H9a3 3 0 0 0-3 3V18a3 3 0 0 0 3 3h6a3 3 0 0 0 3-3v-6.152Z" />
+        </svg>
+        {showMinimap ? 'Hide Minimap' : 'Show Minimap'}
+      </button>
+
+      {/* Fullscreen Toggle */}
+      <button
+        onClick={onToggleFullscreen}
+        className={`${btnClass} ${isFullscreen ? 'text-blue-400' : ''}`}
+      >
+        {isFullscreen ? (
+          <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9V4.5M15 9h4.5M15 9l5.25-5.25M15 15v4.5M15 15h4.5m-4.5 0 5.25 5.25" />
+          </svg>
+        ) : (
+          <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+          </svg>
+        )}
+        {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
       </button>
 
       {/* Toggle Greyscale / Color */}
