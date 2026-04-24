@@ -3,6 +3,9 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import type { AnalysisResult, Gap } from '../types';
 import RadiusStatsPanel from './RadiusChart';
 
+// ─── Calibration constants ────────────────────────────────────────────────────
+const AREA_FACTOR = 0.871076; // µm² per px²
+
 interface Props {
   result: AnalysisResult | null;
   error: string | null;
@@ -83,6 +86,13 @@ export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAl
                     {result.image_size.width} × {result.image_size.height}
                   </dd>
                 </div>
+                <div className="flex justify-between text-sm">
+                  <dt className="text-gray-600">Total Gap Area</dt>
+                  <dd className="font-medium text-gray-900">
+                    {(result.gaps.reduce((s, g) => s + g.area_px, 0) * AREA_FACTOR)
+                      .toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
+                  </dd>
+                </div>
               </dl>
             </section>
 
@@ -117,7 +127,7 @@ export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAl
 
 // ─── Virtualized gap list ────────────────────────────────────────────────────
 
-const ITEM_HEIGHT = 36; // px — must match the rendered row height
+const ITEM_HEIGHT = 52; // px — must match the rendered row height
 
 interface GapListProps {
   gaps: Gap[];
@@ -155,6 +165,10 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
     if (!isSyncViewport) return all;
     return all.filter(i => visibleGapIdsInViewport.has(i));
   }, [gaps, isSyncViewport, visibleGapIdsInViewport, activeTab, selectedGapIds]);
+
+  const totalDisplayedAreaUm = useMemo(() => {
+    return displayIndices.reduce((sum, i) => sum + gaps[i].area_px, 0) * AREA_FACTOR;
+  }, [displayIndices, gaps]);
 
   const virtualizer = useVirtualizer({
     count: displayIndices.length,
@@ -229,6 +243,9 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
         <h3 className="text-xs font-semibold text-gray-500 uppercase">
           Gaps ({displayIndices.length.toLocaleString()}{displayIndices.length !== gaps.length ? ` / ${gaps.length.toLocaleString()}` : ''})
         </h3>
+        <p className="text-[11px] text-gray-400 font-mono">
+          {activeTab === 'selected' ? 'Selected' : 'Listed'} area: {totalDisplayedAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
+        </p>
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
             type="checkbox"
@@ -285,7 +302,8 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
                   </span>
                   <span className={`text-xs font-mono text-right leading-tight ${isSelected ? 'text-yellow-700' : 'text-gray-400'}`}>
                     r={gap.equiv_radius_px.toFixed(1)} px<br/>
-                    A={gap.area_px.toLocaleString()} px²
+                    {(gap.area_px * AREA_FACTOR).toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²<br/>
+                    <span className="opacity-60">({gap.area_px.toLocaleString()} px²)</span>
                   </span>
                 </div>
               </div>
