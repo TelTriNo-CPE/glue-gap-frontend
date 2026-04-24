@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import type { AnalysisResult } from '../types';
+import type { AnalysisResult, DetectionVersion } from '../types';
 import Toolbar from './Toolbar';
 import OsdViewer from './OsdViewer';
 import ResultsPanel from './ResultsPanel';
@@ -17,7 +17,11 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [selectedGapIds, setSelectedGapIds] = useState<Set<number>>(new Set());
   const stem = fileKey.replace(/\.[^.]+$/, '');
 
-  const [result,           setResult]           = useState<AnalysisResult | null>(null);
+  const [detectionHistory, setDetectionHistory]  = useState<DetectionVersion[]>([]);
+  const [activeVersionId,  setActiveVersionId]   = useState<string | null>(null);
+
+  const activeVersion = detectionHistory.find(v => v.id === activeVersionId) ?? null;
+  const result = activeVersion?.result ?? null;
   const [analyzing,        setAnalyzing]         = useState(false);
   const [parsing,          setParsing]           = useState(false);
   const [analyzeError,     setAnalyzeError]      = useState<string | null>(null);
@@ -112,6 +116,13 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     setHiddenGapIndices(new Set(result.gaps.map((_, i) => i)));
   }
 
+  function switchVersion(id: string) {
+    setActiveVersionId(id);
+    setSelectedGapIds(new Set());
+    setHiddenGapIndices(new Set());
+    setVisibleGapIdsInViewport(new Set());
+  }
+
   async function handleDetect() {
     setAnalyzing(true);
     setAnalyzeError(null);
@@ -134,7 +145,17 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       await new Promise<void>(res => setTimeout(res, 32));
 
       const r: AnalysisResult = JSON.parse(raw);
-      setResult(r);
+      const newVersion: DetectionVersion = {
+        id: crypto.randomUUID(),
+        versionNumber: detectionHistory.length + 1,
+        timestamp: new Date(),
+        result: r,
+      };
+      setDetectionHistory(prev => [...prev, newVersion]);
+      setActiveVersionId(newVersion.id);
+      setSelectedGapIds(new Set());
+      setHiddenGapIndices(new Set());
+      setVisibleGapIdsInViewport(new Set());
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       setAnalyzeError(message);
@@ -239,6 +260,9 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         isSyncViewport={isSyncViewport}
         onToggleSyncViewport={() => setIsSyncViewport(prev => !prev)}
         visibleGapIdsInViewport={visibleGapIdsInViewport}
+        detectionHistory={detectionHistory}
+        activeVersionId={activeVersionId}
+        onSwitchVersion={switchVersion}
       />
     </div>
   );

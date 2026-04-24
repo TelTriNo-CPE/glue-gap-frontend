@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import type { AnalysisResult, Gap } from '../types';
+import type { AnalysisResult, DetectionVersion, Gap } from '../types';
 import RadiusStatsPanel from './RadiusChart';
 
 // ─── Calibration constants ────────────────────────────────────────────────────
@@ -18,9 +18,12 @@ interface Props {
   isSyncViewport: boolean;
   onToggleSyncViewport: () => void;
   visibleGapIdsInViewport: Set<number>;
+  detectionHistory: DetectionVersion[];
+  activeVersionId: string | null;
+  onSwitchVersion: (id: string) => void;
 }
 
-export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport }: Props) {
+export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, detectionHistory, activeVersionId, onSwitchVersion }: Props) {
   const allHidden = result ? hiddenGapIndices.size === result.gaps.length : false;
 
   return (
@@ -41,6 +44,24 @@ export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAl
           </button>
         )}
       </div>
+
+      {/* Version selector */}
+      {detectionHistory.length > 1 && activeVersionId && (
+        <div className="px-4 py-2 border-b border-gray-100 bg-gray-50/50">
+          <select
+            value={activeVersionId}
+            onChange={e => onSwitchVersion(e.target.value)}
+            className="w-full text-xs bg-white border border-gray-200 rounded-md px-2 py-1.5
+                       text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+          >
+            {detectionHistory.map(v => (
+              <option key={v.id} value={v.id}>
+                Result v{v.versionNumber} — {v.timestamp.toLocaleTimeString()}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Error */}
       {error && (

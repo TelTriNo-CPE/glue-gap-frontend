@@ -161,13 +161,14 @@ export default function Toolbar({
       {(isGreyscale || hasResult) && (
         <button
           onClick={onDetect}
-          disabled={hasResult || analyzing}
+          disabled={analyzing}
           className={btnClass}
         >
           {analyzing ? <Spinner /> : hasResult ? (
-            <svg className="w-5 h-5 shrink-0 text-green-400" fill="none" viewBox="0 0 24 24"
-                 stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24"
+                 stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.992 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
             </svg>
           ) : (
             <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -175,7 +176,7 @@ export default function Toolbar({
                 d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 15.803 7.5 7.5 0 0 0 15.803 15.803z" />
             </svg>
           )}
-          {analyzing ? 'Detecting…' : hasResult ? 'Detection Complete' : 'Start Detection'}
+          {analyzing ? 'Detecting…' : hasResult ? 'Re-run Detection' : 'Start Detection'}
         </button>
       )}
 

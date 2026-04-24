@@ -20,3 +20,10 @@ export interface AnalysisResult {
   gaps: Gap[];
   radius_stats: RadiusStats | null;
 }
+
+export interface DetectionVersion {
+  id: string;
+  versionNumber: number;
+  timestamp: Date;
+  result: AnalysisResult;
+}
