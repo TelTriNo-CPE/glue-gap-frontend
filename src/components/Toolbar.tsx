@@ -6,10 +6,12 @@ interface Props {
   fileKey: string;
   isGreyscale: boolean;
   hideUnselected: boolean;
+  isOutlineOnly: boolean;
   hasResult: boolean;
   analyzing: boolean;
   onGreyscale: () => void;
   onToggleHideUnselected: () => void;
+  onToggleOutlineOnly: () => void;
   onDetect: () => void;
   onReset: () => void;
   clickMode: 'select' | 'deselect';
@@ -45,10 +47,12 @@ export default function Toolbar({
   fileKey,
   isGreyscale,
   hideUnselected,
+  isOutlineOnly,
   hasResult,
   analyzing,
   onGreyscale,
   onToggleHideUnselected,
+  onToggleOutlineOnly,
   onDetect,
   onReset,
   clickMode,
@@ -127,6 +131,17 @@ export default function Toolbar({
           </svg>
         )}
         {hideUnselected ? 'Show All Gaps' : 'Isolate Selected'}
+      </button>
+
+      {/* Outline Only Toggle */}
+      <button
+        onClick={onToggleOutlineOnly}
+        className={`${btnClass} ${isOutlineOnly ? 'text-blue-400' : ''}`}
+      >
+        <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9a2.25 2.25 0 0 1 2.25 2.25v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
+        </svg>
+        {isOutlineOnly ? 'Show Fill' : 'Outline Only'}
       </button>
 
       {/* Toggle Greyscale / Color */}

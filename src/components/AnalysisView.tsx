@@ -24,6 +24,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [toast,            setToast]             = useState<string | null>(null);
   const [grayscale,        setGrayscale]         = useState(false);
   const [hideUnselected,   setHideUnselected]    = useState(false);
+  const [isOutlineOnly,    setIsOutlineOnly]     = useState(false);
   const [hiddenGapIndices, setHiddenGapIndices]  = useState<Set<number>>(new Set());
   const [clickMode,        setClickMode]         = useState<'select' | 'deselect'>('select');
   const [isSyncViewport,   setIsSyncViewport]    = useState(false);
@@ -203,10 +204,12 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         fileKey={fileKey}
         isGreyscale={grayscale}
         hideUnselected={hideUnselected}
+        isOutlineOnly={isOutlineOnly}
         hasResult={result !== null}
         analyzing={overlayVisible}
         onGreyscale={handleGreyscale}
         onToggleHideUnselected={() => setHideUnselected(prev => !prev)}
+        onToggleOutlineOnly={() => setIsOutlineOnly(prev => !prev)}
         onDetect={handleDetect}
         onReset={onReset}
         clickMode={clickMode}
@@ -217,6 +220,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         gaps={result?.gaps ?? []}
         hiddenGapIndices={hiddenGapIndices}
         hideUnselected={hideUnselected}
+        isOutlineOnly={isOutlineOnly}
         clickMode={clickMode}
         grayscale={grayscale}
         selectedGapIds={selectedGapIds}

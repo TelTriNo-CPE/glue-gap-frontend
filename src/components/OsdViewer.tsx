@@ -8,6 +8,7 @@ interface Props {
   gaps: Gap[];
   hiddenGapIndices: Set<number>;
   hideUnselected: boolean;
+  isOutlineOnly: boolean;
   clickMode: 'select' | 'deselect';
   grayscale: boolean;
   selectedGapIds: Set<number>;
@@ -74,7 +75,7 @@ function getCoords(gap: unknown): number[] | undefined {
   return undefined;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange }: Props) {
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -90,6 +91,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const hiddenRef     = useRef<Set<number>>(hiddenGapIndices);
   const selectedRef   = useRef<Set<number>>(selectedGapIds);
   const hideUnselectedRef = useRef<boolean>(hideUnselected);
+  const isOutlineOnlyRef = useRef<boolean>(isOutlineOnly);
   const clickModeRef  = useRef<'select' | 'deselect'>(clickMode);
   const onVisibleGapsChangeRef = useRef(onVisibleGapsChange);
   const lastVisibleGapsRef = useRef<Set<number>>(new Set());
@@ -98,6 +100,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   useEffect(() => { hiddenRef.current = hiddenGapIndices; }, [hiddenGapIndices]);
   useEffect(() => { selectedRef.current = selectedGapIds; }, [selectedGapIds]);
   useEffect(() => { hideUnselectedRef.current = hideUnselected; }, [hideUnselected]);
+  useEffect(() => { isOutlineOnlyRef.current = isOutlineOnly; }, [isOutlineOnly]);
   useEffect(() => { clickModeRef.current = clickMode; }, [clickMode]);
   useEffect(() => { onVisibleGapsChangeRef.current = onVisibleGapsChange; }, [onVisibleGapsChange]);
 
@@ -137,6 +140,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     const currentHidden = hiddenRef.current;
     const currentSelected = selectedRef.current;
     const isHideUnselected = hideUnselectedRef.current;
+    const isOutlineOnly = isOutlineOnlyRef.current;
 
     if (currentGaps.length === 0) return;
 
@@ -239,14 +243,18 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         if (currentSelected.has(gi)) {
           ctx.save();
           ctx.strokeStyle = '#FFD600';
-          ctx.lineWidth = 4;
-          ctx.fillStyle = 'rgba(255, 255, 0, 0.4)';
+          ctx.lineWidth = isOutlineOnly ? 6 : 4;
           ctx.stroke();
-          ctx.fill();
+          if (!isOutlineOnly) {
+            ctx.fillStyle = 'rgba(255, 255, 0, 0.4)';
+            ctx.fill();
+          }
           ctx.restore();
         } else {
           ctx.stroke();
-          ctx.fill();
+          if (!isOutlineOnly) {
+            ctx.fill();
+          }
         }
         drawn++;
       } catch {
@@ -423,7 +431,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   // Redraw whenever gap data or visibility changes
   useEffect(() => {
     scheduleFullRedraw();
-  }, [gaps, hiddenGapIndices, selectedGapIds, hideUnselected, scheduleFullRedraw]);
+  }, [gaps, hiddenGapIndices, selectedGapIds, hideUnselected, isOutlineOnly, scheduleFullRedraw]);
 
   // Apply grayscale only to OSD's drawing surface, not our overlay
   useEffect(() => {
