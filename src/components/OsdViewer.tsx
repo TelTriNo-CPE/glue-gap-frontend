@@ -10,6 +10,7 @@ interface Props {
   hideUnselected: boolean;
   isOutlineOnly: boolean;
   showMinimap: boolean;
+  isFullscreen: boolean;
   clickMode: 'select' | 'deselect';
   grayscale: boolean;
   selectedGapIds: Set<number>;
@@ -76,7 +77,7 @@ function getCoords(gap: unknown): number[] | undefined {
   return undefined;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange }: Props) {
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -121,21 +122,26 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
     if (!viewer || !canvas || !viewer.isOpen()) return;
 
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
     const tiledImage = viewer.world.getItemAt(0);
     if (!tiledImage) return;
 
     // Sync canvas backing buffer to OSD canvas container
     const osdCanvas = viewer.canvas as HTMLElement;
+    if (!osdCanvas) return;
+
     const w = osdCanvas.clientWidth;
     const h = osdCanvas.clientHeight;
-    if (w === 0 || h === 0) return;
+    if (w <= 0 || h <= 0) return;
+
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width  = w;
       canvas.height = h;
     }
 
-    const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, w, h);
 
     const currentGaps   = gapsRef.current;
     const currentHidden = hiddenRef.current;
@@ -429,10 +435,20 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     };
   }, [stem, startTimer, stopTimer, scheduleRedraw, scheduleFullRedraw]);
 
-  // Redraw whenever gap data or visibility changes
+  // Redraw whenever gap data, visibility or fullscreen changes
   useEffect(() => {
-    scheduleFullRedraw();
-  }, [gaps, hiddenGapIndices, selectedGapIds, hideUnselected, isOutlineOnly, scheduleFullRedraw]);
+    // Force OSD to update its layout when exiting/entering fullscreen
+    if (viewerRef.current) {
+      viewerRef.current.forceRedraw();
+    }
+    
+    // Use a small timeout to let the DOM settle after fullscreen transition
+    const t = setTimeout(() => {
+      scheduleFullRedraw();
+    }, 150);
+    
+    return () => clearTimeout(t);
+  }, [gaps, hiddenGapIndices, selectedGapIds, hideUnselected, isOutlineOnly, isFullscreen, scheduleFullRedraw]);
 
   // Apply grayscale only to OSD's drawing surface, not our overlay
   useEffect(() => {

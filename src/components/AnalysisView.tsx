@@ -361,6 +361,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
           hideUnselected={hideUnselected}
           isOutlineOnly={isOutlineOnly}
           showMinimap={showMinimap}
+          isFullscreen={isFullscreen}
           clickMode={clickMode}
           grayscale={grayscale}
           selectedGapIds={selectedGapIds}
