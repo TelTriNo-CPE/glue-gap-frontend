@@ -163,6 +163,12 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
     return displayIndices.reduce((sum, i) => sum + gaps[i].area_px, 0) * AREA_FACTOR;
   }, [displayIndices, gaps]);
 
+  const selectedAreaUm = useMemo(() => {
+    let sum = 0;
+    for (const i of selectedGapIds) sum += gaps[i].area_px;
+    return sum * AREA_FACTOR;
+  }, [selectedGapIds, gaps]);
+
   const totalAbsoluteAreaUm = useMemo(() => {
     return gaps.reduce((sum, g) => sum + g.area_px, 0) * AREA_FACTOR;
   }, [gaps]);
@@ -242,6 +248,9 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
         </h3>
         <p className="text-[11px] text-gray-500 font-mono">
           Listed Area: {totalDisplayedAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
+        </p>
+        <p className="text-[11px] text-indigo-600 font-medium font-mono">
+          Selected Area: {selectedAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
         </p>
         <p className="text-lg font-bold text-blue-600 font-mono">
           Total Area: {totalAbsoluteAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
