@@ -86,13 +86,6 @@ export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAl
                     {result.image_size.width} × {result.image_size.height}
                   </dd>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <dt className="text-gray-600">Total Gap Area</dt>
-                  <dd className="font-medium text-gray-900">
-                    {(result.gaps.reduce((s, g) => s + g.area_px, 0) * AREA_FACTOR)
-                      .toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
-                  </dd>
-                </div>
               </dl>
             </section>
 
@@ -170,6 +163,10 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
     return displayIndices.reduce((sum, i) => sum + gaps[i].area_px, 0) * AREA_FACTOR;
   }, [displayIndices, gaps]);
 
+  const totalAbsoluteAreaUm = useMemo(() => {
+    return gaps.reduce((sum, g) => sum + g.area_px, 0) * AREA_FACTOR;
+  }, [gaps]);
+
   const virtualizer = useVirtualizer({
     count: displayIndices.length,
     getScrollElement: () => scrollRef.current,
@@ -243,8 +240,11 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
         <h3 className="text-xs font-semibold text-gray-500 uppercase">
           Gaps ({displayIndices.length.toLocaleString()}{displayIndices.length !== gaps.length ? ` / ${gaps.length.toLocaleString()}` : ''})
         </h3>
-        <p className="text-[11px] text-gray-400 font-mono">
-          {activeTab === 'selected' ? 'Selected' : 'Listed'} area: {totalDisplayedAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
+        <p className="text-[11px] text-gray-500 font-mono">
+          Listed Area: {totalDisplayedAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
+        </p>
+        <p className="text-lg font-bold text-blue-600 font-mono">
+          Total Area: {totalAbsoluteAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
         </p>
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
