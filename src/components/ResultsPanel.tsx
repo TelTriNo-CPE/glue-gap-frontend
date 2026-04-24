@@ -169,6 +169,12 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
     const latest = Array.from(selectedGapIds).pop();
     if (latest !== undefined && latest !== lastSelectedId) {
       setLastSelectedId(latest);
+      
+      // Auto-switch to "Selected" tab when a selection occurs
+      if (activeTab !== 'selected') {
+        setActiveTab('selected');
+      }
+
       const displayIndex = displayIndices.indexOf(latest);
       if (displayIndex !== -1) {
         virtualizer.scrollToIndex(displayIndex, { align: 'center' });
@@ -176,7 +182,7 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
     } else if (selectedGapIds.size === 0) {
       setLastSelectedId(null);
     }
-  }, [selectedGapIds, virtualizer, lastSelectedId, displayIndices]);
+  }, [selectedGapIds, virtualizer, lastSelectedId, displayIndices, activeTab]);
 
   const handleItemClick = (e: React.MouseEvent, currentIndex: number) => {
     const originalIndex = displayIndices[currentIndex];
