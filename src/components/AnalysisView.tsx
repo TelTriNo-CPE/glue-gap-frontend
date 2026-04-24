@@ -314,7 +314,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
 
       <div 
         ref={viewerContainerRef}
-        className="flex flex-1 min-w-0 bg-gray-950 relative"
+        className="flex flex-1 min-w-0 bg-gray-950 relative overflow-hidden"
       >
         {/* Left Panel (Toolbar) */}
         {!isLeftCollapsed && (

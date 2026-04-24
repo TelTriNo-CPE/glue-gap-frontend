@@ -125,6 +125,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    try {
+
     const tiledImage = viewer.world.getItemAt(0);
     if (!tiledImage) return;
 
@@ -159,6 +161,9 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     const by1 = bounds.y;
     const bx2 = bounds.x + bounds.width;
     const by2 = bounds.y + bounds.height;
+
+    // Guard against invalid viewport during resize/fullscreen transitions
+    if (!isFinite(bx1) || !isFinite(by1) || !isFinite(bx2) || !isFinite(by2)) return;
 
     // Image dimensions for denormalization
     const imgSize = tiledImage.getContentSize();
@@ -295,6 +300,10 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       ctx.textBaseline = 'middle';
       ctx.fillText(msg, 12, 18);
       ctx.restore();
+    }
+
+    } catch {
+      // Silently skip draw frame during viewport transitions (e.g. fullscreen exit)
     }
   }, []);
 
@@ -435,20 +444,27 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     };
   }, [stem, startTimer, stopTimer, scheduleRedraw, scheduleFullRedraw]);
 
-  // Redraw whenever gap data, visibility or fullscreen changes
+  // Redraw whenever gap data or visibility changes
   useEffect(() => {
-    // Force OSD to update its layout when exiting/entering fullscreen
-    if (viewerRef.current) {
-      viewerRef.current.forceRedraw();
-    }
-    
-    // Use a small timeout to let the DOM settle after fullscreen transition
-    const t = setTimeout(() => {
-      scheduleFullRedraw();
-    }, 150);
-    
-    return () => clearTimeout(t);
-  }, [gaps, hiddenGapIndices, selectedGapIds, hideUnselected, isOutlineOnly, isFullscreen, scheduleFullRedraw]);
+    scheduleFullRedraw();
+  }, [gaps, hiddenGapIndices, selectedGapIds, hideUnselected, isOutlineOnly, scheduleFullRedraw]);
+
+  // Safely handle fullscreen transitions — stagger redraws to let the DOM settle
+  // before OSD reads container dimensions.
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+
+    const timeouts = [50, 200, 500].map(delay =>
+      setTimeout(() => {
+        if (!viewerRef.current) return;
+        viewerRef.current.forceRedraw();
+        scheduleFullRedraw();
+      }, delay),
+    );
+
+    return () => timeouts.forEach(clearTimeout);
+  }, [isFullscreen, scheduleFullRedraw]);
 
   // Apply grayscale only to OSD's drawing surface, not our overlay
   useEffect(() => {
@@ -470,7 +486,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   }, [showMinimap]);
 
   return (
-    <div className="flex-1 relative bg-black" style={{ minWidth: 0 }}>
+    <div className="flex-1 relative bg-black overflow-hidden" style={{ minWidth: 0 }}>
 
       {/* OSD container — no filter here; grayscale applied to drawer canvas directly */}
       <div
