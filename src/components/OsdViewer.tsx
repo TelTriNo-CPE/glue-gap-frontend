@@ -160,11 +160,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, clickMode, gra
     const visibleGaps = new Set<number>();
 
     for (let gi = 0; gi < currentGaps.length; gi++) {
-      const isSelected = currentSelected.has(gi);
-      const isHidden = hiddenRef.current.has(gi);
-
-      // Skip if hidden AND NOT selected (Rule 2 compatibility)
-      if (isHidden && !isSelected) {
+      // Hidden overrides highlight: never draw hidden gaps, even if selected
+      if (hiddenRef.current.has(gi)) {
         continue;
       }
 

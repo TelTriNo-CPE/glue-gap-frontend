@@ -49,31 +49,40 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     }
 
     const ids = Array.isArray(id) ? id : [id];
+    let idsToUnhide: number[] = [];
 
     setSelectedGapIds(prev => {
       const next = new Set(prev);
+      const added: number[] = [];
       for (const currentId of ids) {
         if (mode === 'toggle') {
           if (next.has(currentId)) {
             next.delete(currentId);
           } else {
             next.add(currentId);
+            added.push(currentId);
           }
         } else if (mode === 'select') {
           next.add(currentId);
+          // Always unhide on explicit select (row click / canvas click),
+          // even if the gap was already in the set.
+          added.push(currentId);
         } else if (mode === 'deselect') {
           next.delete(currentId);
         }
       }
+      idsToUnhide = added;
       return next;
     });
 
-    // Rule 5: Auto-unhide if it was added to the selection
-    if (mode === 'select' || mode === 'toggle') {
+    // Auto-unhide only gaps that were actually added to the selection.
+    // This ensures the eye-icon toggle (which calls toggleGap directly,
+    // not handleSelectGap) is never overridden.
+    if (idsToUnhide.length > 0) {
       setHiddenGapIndices(prev => {
         const next = new Set(prev);
         let changed = false;
-        for (const currentId of ids) {
+        for (const currentId of idsToUnhide) {
           if (next.has(currentId)) {
             next.delete(currentId);
             changed = true;
@@ -133,14 +142,6 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       setAnalyzing(false);
       setParsing(false);
     }
-  }
-
-  function toggleGap(index: number) {
-    setHiddenGapIndices(prev => {
-      const next = new Set(prev);
-      next.has(index) ? next.delete(index) : next.add(index);
-      return next;
-    });
   }
 
   const overlayVisible = analyzing || parsing;
