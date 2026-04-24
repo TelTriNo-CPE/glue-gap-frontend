@@ -203,6 +203,7 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
               onToggleSyncViewport={onToggleSyncViewport}
               visibleGapIdsInViewport={visibleGapIdsInViewport}
               activeTab={activeTab}
+              onTabChange={setActiveTab}
             />
           )}
         </>
@@ -251,9 +252,10 @@ interface GapListProps {
   onToggleSyncViewport: () => void;
   visibleGapIdsInViewport: Set<number>;
   activeTab: 'all' | 'selected';
+  onTabChange: (tab: 'all' | 'selected') => void;
 }
 
-function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, activeTab }: GapListProps) {
+function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, activeTab, onTabChange }: GapListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
@@ -301,7 +303,7 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
       
       // Auto-switch to "Selected" tab when a selection occurs
       if (activeTab !== 'selected') {
-        setActiveTab('selected');
+        onTabChange('selected');
       }
 
       const displayIndex = displayIndices.indexOf(latest);
