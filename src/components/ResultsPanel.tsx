@@ -64,6 +64,33 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
     }
   }, [selectedGapIds.size, activeTab]);
 
+  const displayIndices = useMemo(() => {
+    if (!result) return [];
+    if (activeTab === 'selected') {
+      return Array.from(selectedGapIds).sort((a, b) => a - b);
+    }
+    const all = result.gaps.map((_, i) => i);
+    if (!isSyncViewport) return all;
+    return all.filter(i => visibleGapIdsInViewport.has(i));
+  }, [result, isSyncViewport, visibleGapIdsInViewport, activeTab, selectedGapIds]);
+
+  const totalDisplayedAreaUm = useMemo(() => {
+    if (!result) return 0;
+    return displayIndices.reduce((sum, i) => sum + result.gaps[i].area_px, 0) * AREA_FACTOR;
+  }, [displayIndices, result]);
+
+  const selectedAreaUm = useMemo(() => {
+    if (!result) return 0;
+    let sum = 0;
+    for (const i of selectedGapIds) sum += result.gaps[i].area_px;
+    return sum * AREA_FACTOR;
+  }, [selectedGapIds, result]);
+
+  const totalAbsoluteAreaUm = useMemo(() => {
+    if (!result) return 0;
+    return result.gaps.reduce((sum, g) => sum + g.area_px, 0) * AREA_FACTOR;
+  }, [result]);
+
   return (
     <aside 
       className="bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0"
@@ -141,6 +168,19 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
                       {result.image_size.width} × {result.image_size.height}
                     </dd>
                   </div>
+                  <div className="border-t border-gray-100 my-1" />
+                  <div className="flex justify-between text-xs font-mono">
+                    <dt className="text-gray-500">Listed Area</dt>
+                    <dd className="text-gray-700">{totalDisplayedAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²</dd>
+                  </div>
+                  <div className="flex justify-between text-xs font-mono">
+                    <dt className="text-indigo-500 font-medium">Selected Area</dt>
+                    <dd className="text-indigo-700 font-medium">{selectedAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²</dd>
+                  </div>
+                  <div className="flex justify-between text-sm font-mono mt-1">
+                    <dt className="text-blue-600 font-bold uppercase text-[10px]">Total Area</dt>
+                    <dd className="text-blue-600 font-bold">{totalAbsoluteAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²</dd>
+                  </div>
                 </dl>
               </section>
 
@@ -153,9 +193,25 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
                 </section>
               )}
             </div>
+          </div>
 
-            {/* Tab Control (moved from GapList) */}
-            <div className="mt-auto border-t border-b border-gray-100 bg-gray-50/50 p-1 gap-1 flex">
+          {/* Draggable Divider */}
+          <div 
+            onMouseDown={handleMouseDown}
+            className="h-2 bg-gray-100 hover:bg-blue-400 cursor-row-resize active:bg-blue-500 
+                       transition-colors flex items-center justify-center shrink-0 group border-y border-gray-200"
+          >
+            <div className="flex gap-1">
+              <div className="w-1 h-1 rounded-full bg-gray-300 group-hover:bg-blue-100" />
+              <div className="w-1 h-1 rounded-full bg-gray-300 group-hover:bg-blue-100" />
+              <div className="w-1 h-1 rounded-full bg-gray-300 group-hover:bg-blue-100" />
+            </div>
+          </div>
+
+          {/* Bottom section: Tabs + List */}
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {/* Tab Control */}
+            <div className="border-b border-gray-100 bg-gray-50/50 p-1 gap-1 flex shrink-0">
               <button
                 onClick={() => setActiveTab('all')}
                 className={`flex-1 py-1.5 text-[11px] font-semibold uppercase tracking-wider rounded transition-all
@@ -176,36 +232,24 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
                 Selected ({selectedGapIds.size})
               </button>
             </div>
-          </div>
 
-          {/* Draggable Divider */}
-          <div 
-            onMouseDown={handleMouseDown}
-            className="h-2 bg-gray-100 hover:bg-blue-400 cursor-row-resize active:bg-blue-500 
-                       transition-colors flex items-center justify-center shrink-0 group border-y border-gray-200"
-          >
-            <div className="flex gap-1">
-              <div className="w-1 h-1 rounded-full bg-gray-300 group-hover:bg-blue-100" />
-              <div className="w-1 h-1 rounded-full bg-gray-300 group-hover:bg-blue-100" />
-              <div className="w-1 h-1 rounded-full bg-gray-300 group-hover:bg-blue-100" />
-            </div>
+            {/* Virtualized gap list — takes all remaining height */}
+            {result.gaps.length > 0 && (
+              <GapList
+                gaps={result.gaps}
+                hiddenGapIndices={hiddenGapIndices}
+                onToggleGap={onToggleGap}
+                selectedGapIds={selectedGapIds}
+                onSelectGap={onSelectGap}
+                isSyncViewport={isSyncViewport}
+                onToggleSyncViewport={onToggleSyncViewport}
+                visibleGapIdsInViewport={visibleGapIdsInViewport}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                displayIndices={displayIndices}
+              />
+            )}
           </div>
-
-          {/* Virtualized gap list — takes all remaining height */}
-          {result.gaps.length > 0 && (
-            <GapList
-              gaps={result.gaps}
-              hiddenGapIndices={hiddenGapIndices}
-              onToggleGap={onToggleGap}
-              selectedGapIds={selectedGapIds}
-              onSelectGap={onSelectGap}
-              isSyncViewport={isSyncViewport}
-              onToggleSyncViewport={onToggleSyncViewport}
-              visibleGapIdsInViewport={visibleGapIdsInViewport}
-              activeTab={activeTab}
-              onTabChange={setActiveTab}
-            />
-          )}
         </>
       ) : (
         <>
@@ -253,39 +297,13 @@ interface GapListProps {
   visibleGapIdsInViewport: Set<number>;
   activeTab: 'all' | 'selected';
   onTabChange: (tab: 'all' | 'selected') => void;
+  displayIndices: number[];
 }
 
-function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, activeTab, onTabChange }: GapListProps) {
+function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, activeTab, onTabChange, displayIndices }: GapListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
-
-  const selectedCount = selectedGapIds.size;
-
-  const displayIndices = useMemo(() => {
-    if (activeTab === 'selected') {
-      // Sort them so they appear in order of index even if selected out of order
-      return Array.from(selectedGapIds).sort((a, b) => a - b);
-    }
-
-    const all = gaps.map((_, i) => i);
-    if (!isSyncViewport) return all;
-    return all.filter(i => visibleGapIdsInViewport.has(i));
-  }, [gaps, isSyncViewport, visibleGapIdsInViewport, activeTab, selectedGapIds]);
-
-  const totalDisplayedAreaUm = useMemo(() => {
-    return displayIndices.reduce((sum, i) => sum + gaps[i].area_px, 0) * AREA_FACTOR;
-  }, [displayIndices, gaps]);
-
-  const selectedAreaUm = useMemo(() => {
-    let sum = 0;
-    for (const i of selectedGapIds) sum += gaps[i].area_px;
-    return sum * AREA_FACTOR;
-  }, [selectedGapIds, gaps]);
-
-  const totalAbsoluteAreaUm = useMemo(() => {
-    return gaps.reduce((sum, g) => sum + g.area_px, 0) * AREA_FACTOR;
-  }, [gaps]);
 
   const virtualizer = useVirtualizer({
     count: displayIndices.length,
@@ -337,15 +355,6 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
         <h3 className="text-xs font-semibold text-gray-500 uppercase">
           Gaps ({displayIndices.length.toLocaleString()}{displayIndices.length !== gaps.length ? ` / ${gaps.length.toLocaleString()}` : ''})
         </h3>
-        <p className="text-[11px] text-gray-500 font-mono">
-          Listed Area: {totalDisplayedAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
-        </p>
-        <p className="text-[11px] text-indigo-600 font-medium font-mono">
-          Selected Area: {selectedAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
-        </p>
-        <p className="text-lg font-bold text-blue-600 font-mono">
-          Total Area: {totalAbsoluteAreaUm.toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²
-        </p>
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <input
             type="checkbox"
