@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { downloadExcel, downloadJpeg } from '../api';
 
 interface Props {
+  width?: number;
   stem: string;
   fileKey: string;
   isGreyscale: boolean;
@@ -51,6 +52,7 @@ function Divider() {
 }
 
 export default function Toolbar({
+  width = 256,
   stem,
   fileKey,
   isGreyscale,
@@ -89,7 +91,10 @@ export default function Toolbar({
   }
 
   return (
-    <aside className="w-64 bg-gray-900 flex flex-col py-4 px-3 gap-1 shrink-0">
+    <aside 
+      className="bg-gray-900 flex flex-col py-4 px-3 gap-1 shrink-0"
+      style={{ width }}
+    >
 
       {/* Upload Another */}
       <button onClick={onReset} className={btnClass}>

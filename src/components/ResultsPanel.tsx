@@ -7,6 +7,7 @@ import RadiusStatsPanel from './RadiusChart';
 const AREA_FACTOR = 0.871076; // µm² per px²
 
 interface Props {
+  width?: number;
   result: AnalysisResult | null;
   error: string | null;
   hiddenGapIndices: Set<number>;
@@ -24,7 +25,7 @@ interface Props {
   onDeleteVersion: (id: string) => void;
 }
 
-export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, detectionHistory, activeVersionId, onSwitchVersion, onDeleteVersion }: Props) {
+export default function ResultsPanel({ width = 320, result, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, detectionHistory, activeVersionId, onSwitchVersion, onDeleteVersion }: Props) {
   const allHidden = result ? hiddenGapIndices.size === result.gaps.length : false;
   
   const [topSectionHeight, setTopSectionHeight] = useState(350);
@@ -65,8 +66,8 @@ export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAl
 
   return (
     <aside 
-      className="w-80 bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0"
-      style={{ userSelect: isDragging ? 'none' : 'auto' }}
+      className="bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0"
+      style={{ userSelect: isDragging ? 'none' : 'auto', width }}
     >
       <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0">
         <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">Analysis</h2>

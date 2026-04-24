@@ -40,6 +40,47 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [showMinimap,  setShowMinimap]  = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  const [leftWidth, setLeftWidth] = useState(256);
+  const [rightWidth, setRightWidth] = useState(320);
+  const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
+  const [isRightCollapsed, setIsRightCollapsed] = useState(false);
+  const [draggingPanel, setDraggingPanel] = useState<'left' | 'right' | null>(null);
+
+  useEffect(() => {
+    if (!draggingPanel) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (draggingPanel === 'left') {
+        const newWidth = e.clientX;
+        if (newWidth < 150) {
+          setIsLeftCollapsed(true);
+          setDraggingPanel(null);
+        } else {
+          setLeftWidth(Math.min(newWidth, window.innerWidth / 2));
+          setIsLeftCollapsed(false);
+        }
+      } else if (draggingPanel === 'right') {
+        const newWidth = window.innerWidth - e.clientX;
+        if (newWidth < 150) {
+          setIsRightCollapsed(true);
+          setDraggingPanel(null);
+        } else {
+          setRightWidth(Math.min(newWidth, window.innerWidth / 2));
+          setIsRightCollapsed(false);
+        }
+      }
+    };
+
+    const handleMouseUp = () => setDraggingPanel(null);
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draggingPanel]);
+
   // Sync fullscreen state with native browser event (e.g. Esc key)
   useEffect(() => {
     const handler = () => {
@@ -218,7 +259,10 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const overlayVisible = analyzing || parsing;
 
   return (
-    <div className="relative flex h-screen bg-gray-950 overflow-hidden">
+    <div 
+      className="relative flex h-screen bg-gray-950 overflow-hidden"
+      style={{ userSelect: draggingPanel ? 'none' : 'auto' }}
+    >
 
       {/* Error toast — top-centre, auto-dismisses */}
       {toast && (
@@ -272,30 +316,44 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         ref={viewerContainerRef}
         className="flex flex-1 min-w-0 bg-gray-950 relative"
       >
-        <Toolbar
-          stem={stem}
-          fileKey={fileKey}
-          isGreyscale={grayscale}
-          hideUnselected={hideUnselected}
-          isOutlineOnly={isOutlineOnly}
-          hasResult={result !== null}
-          analyzing={overlayVisible}
-          onGreyscale={handleGreyscale}
-          onToggleHideUnselected={() => setHideUnselected(prev => !prev)}
-          onToggleOutlineOnly={() => setIsOutlineOnly(prev => !prev)}
-          onDetect={handleDetect}
-          onReset={onReset}
-          clickMode={clickMode}
-          setClickMode={setClickMode}
-          sensitivity={sensitivity}
-          onSensitivityChange={setSensitivity}
-          minArea={minArea}
-          onMinAreaChange={setMinArea}
-          showMinimap={showMinimap}
-          onToggleMinimap={() => setShowMinimap(prev => !prev)}
-          isFullscreen={isFullscreen}
-          onToggleFullscreen={toggleFullscreen}
-        />
+        {/* Left Panel (Toolbar) */}
+        {!isLeftCollapsed && (
+          <Toolbar
+            width={leftWidth}
+            stem={stem}
+            fileKey={fileKey}
+            isGreyscale={grayscale}
+            hideUnselected={hideUnselected}
+            isOutlineOnly={isOutlineOnly}
+            hasResult={result !== null}
+            analyzing={overlayVisible}
+            onGreyscale={handleGreyscale}
+            onToggleHideUnselected={() => setHideUnselected(prev => !prev)}
+            onToggleOutlineOnly={() => setIsOutlineOnly(prev => !prev)}
+            onDetect={handleDetect}
+            onReset={onReset}
+            clickMode={clickMode}
+            setClickMode={setClickMode}
+            sensitivity={sensitivity}
+            onSensitivityChange={setSensitivity}
+            minArea={minArea}
+            onMinAreaChange={setMinArea}
+            showMinimap={showMinimap}
+            onToggleMinimap={() => setShowMinimap(prev => !prev)}
+            isFullscreen={isFullscreen}
+            onToggleFullscreen={toggleFullscreen}
+          />
+        )}
+
+        {/* Left Resizer */}
+        {!isLeftCollapsed && (
+          <div
+            onMouseDown={() => setDraggingPanel('left')}
+            className="w-1 bg-gray-800 hover:bg-blue-600 cursor-col-resize transition-colors shrink-0 z-10"
+          />
+        )}
+
+        {/* Middle Panel (Viewer) */}
         <OsdViewer
           stem={stem}
           gaps={result?.gaps ?? []}
@@ -309,24 +367,66 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
           onSelectGap={handleSelectGap}
           onVisibleGapsChange={setVisibleGapIdsInViewport}
         />
+
+        {/* Right Resizer (inside viewer container to show in fullscreen) */}
+        {!isRightCollapsed && !isFullscreen && (
+          <div
+            onMouseDown={() => setDraggingPanel('right')}
+            className="w-1 bg-gray-800 hover:bg-blue-600 cursor-col-resize transition-colors shrink-0 z-10"
+          />
+        )}
+
+        {/* Floating Triangle Toggles */}
+        {isLeftCollapsed && (
+          <button
+            onClick={() => setIsLeftCollapsed(false)}
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-50 bg-gray-800 hover:bg-gray-700 
+                       text-gray-400 hover:text-white p-1 rounded-r-md border border-l-0 border-gray-700
+                       transition-all shadow-lg group"
+            title="Expand Sidebar"
+          >
+            <svg className="w-4 h-8 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+            </svg>
+          </button>
+        )}
+
+        {isRightCollapsed && !isFullscreen && (
+          <button
+            onClick={() => setIsRightCollapsed(false)}
+            className="absolute right-0 top-1/2 -translate-y-1/2 z-50 bg-gray-800 hover:bg-gray-700 
+                       text-gray-400 hover:text-white p-1 rounded-l-md border border-r-0 border-gray-700
+                       transition-all shadow-lg group"
+            title="Expand Results"
+          >
+            <svg className="w-4 h-8 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+            </svg>
+          </button>
+        )}
       </div>
-      <ResultsPanel
-        result={result}
-        error={analyzeError}
-        hiddenGapIndices={hiddenGapIndices}
-        onToggleGap={toggleGap}
-        onShowAllGaps={showAllGaps}
-        onHideAllGaps={hideAllGaps}
-        selectedGapIds={selectedGapIds}
-        onSelectGap={handleSelectGap}
-        isSyncViewport={isSyncViewport}
-        onToggleSyncViewport={() => setIsSyncViewport(prev => !prev)}
-        visibleGapIdsInViewport={visibleGapIdsInViewport}
-        detectionHistory={detectionHistory}
-        activeVersionId={activeVersionId}
-        onSwitchVersion={switchVersion}
-        onDeleteVersion={deleteVersion}
-      />
+
+      {/* Right Panel (Results) */}
+      {!isRightCollapsed && !isFullscreen && (
+        <ResultsPanel
+          width={rightWidth}
+          result={result}
+          error={analyzeError}
+          hiddenGapIndices={hiddenGapIndices}
+          onToggleGap={toggleGap}
+          onShowAllGaps={showAllGaps}
+          onHideAllGaps={hideAllGaps}
+          selectedGapIds={selectedGapIds}
+          onSelectGap={handleSelectGap}
+          isSyncViewport={isSyncViewport}
+          onToggleSyncViewport={() => setIsSyncViewport(prev => !prev)}
+          visibleGapIdsInViewport={visibleGapIdsInViewport}
+          detectionHistory={detectionHistory}
+          activeVersionId={activeVersionId}
+          onSwitchVersion={switchVersion}
+          onDeleteVersion={deleteVersion}
+        />
+      )}
     </div>
   );
 }
