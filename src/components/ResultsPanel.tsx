@@ -56,7 +56,7 @@ export default function ResultsPanel({ result, error, hiddenGapIndices, onShowAl
           >
             {detectionHistory.map(v => (
               <option key={v.id} value={v.id}>
-                Result v{v.versionNumber} — {v.timestamp.toLocaleTimeString()}
+                v{v.versionNumber} (Sens: {v.params.sensitivity}, Min: {v.params.minArea}) — {v.timestamp.toLocaleTimeString()}
               </option>
             ))}
           </select>

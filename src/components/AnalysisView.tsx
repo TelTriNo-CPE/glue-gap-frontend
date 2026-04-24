@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import type { AnalysisResult, DetectionVersion } from '../types';
+import type { AnalysisResult, DetectionParams, DetectionVersion } from '../types';
 import Toolbar from './Toolbar';
 import OsdViewer from './OsdViewer';
 import ResultsPanel from './ResultsPanel';
@@ -33,6 +33,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [clickMode,        setClickMode]         = useState<'select' | 'deselect'>('select');
   const [isSyncViewport,   setIsSyncViewport]    = useState(false);
   const [visibleGapIdsInViewport, setVisibleGapIdsInViewport] = useState<Set<number>>(new Set());
+  const [sensitivity,  setSensitivity]  = useState(50);
+  const [minArea,      setMinArea]      = useState(20);
 
   // Auto-dismiss toast after TOAST_DURATION_MS
   useEffect(() => {
@@ -131,7 +133,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       // the main thread (see setParsing below).
       const { data: raw } = await axios.post<string>(
         '/analyze-gaps',
-        { key: fileKey },
+        { key: fileKey, sensitivity, minArea },
         {
           responseType: 'text',
           timeout: ANALYZE_TIMEOUT_MS,
@@ -149,6 +151,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         id: crypto.randomUUID(),
         versionNumber: detectionHistory.length + 1,
         timestamp: new Date(),
+        params: { sensitivity, minArea },
         result: r,
       };
       setDetectionHistory(prev => [...prev, newVersion]);
@@ -235,6 +238,10 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         onReset={onReset}
         clickMode={clickMode}
         setClickMode={setClickMode}
+        sensitivity={sensitivity}
+        onSensitivityChange={setSensitivity}
+        minArea={minArea}
+        onMinAreaChange={setMinArea}
       />
       <OsdViewer
         stem={stem}

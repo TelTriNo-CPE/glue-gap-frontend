@@ -21,9 +21,15 @@ export interface AnalysisResult {
   radius_stats: RadiusStats | null;
 }
 
+export interface DetectionParams {
+  sensitivity: number;
+  minArea: number;
+}
+
 export interface DetectionVersion {
   id: string;
   versionNumber: number;
   timestamp: Date;
+  params: DetectionParams;
   result: AnalysisResult;
 }

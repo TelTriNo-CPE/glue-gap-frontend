@@ -16,6 +16,10 @@ interface Props {
   onReset: () => void;
   clickMode: 'select' | 'deselect';
   setClickMode: (mode: 'select' | 'deselect') => void;
+  sensitivity: number;
+  onSensitivityChange: (value: number) => void;
+  minArea: number;
+  onMinAreaChange: (value: number) => void;
 }
 
 const btnClass =
@@ -57,6 +61,10 @@ export default function Toolbar({
   onReset,
   clickMode,
   setClickMode,
+  sensitivity,
+  onSensitivityChange,
+  minArea,
+  onMinAreaChange,
 }: Props) {
   const [busy, setBusy] = useState<'excel' | 'jpeg' | null>(null);
 
@@ -156,6 +164,77 @@ export default function Toolbar({
         </svg>
         {isGreyscale ? 'Switch to Color' : 'Switch to Greyscale'}
       </button>
+
+      {/* Detection Settings — shown when detection is available */}
+      {(isGreyscale || hasResult) && (
+        <>
+          <Divider />
+          <div className="px-1 py-2 flex flex-col gap-3">
+            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block px-1">
+              Detection Settings
+            </label>
+
+            {/* Sensitivity slider */}
+            <div className="flex flex-col gap-1 px-1">
+              <div className="flex justify-between items-center">
+                <span className="text-[11px] text-gray-400">Sensitivity</span>
+                <span className="text-[11px] font-mono text-gray-300">{sensitivity}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={sensitivity}
+                onChange={e => onSensitivityChange(Number(e.target.value))}
+                disabled={analyzing}
+                className="w-full h-1.5 rounded-full appearance-none bg-gray-700
+                           accent-blue-500 disabled:opacity-40"
+              />
+              <div className="flex justify-between text-[9px] text-gray-600">
+                <span>Low</span>
+                <span>High</span>
+              </div>
+            </div>
+
+            {/* Min Area input */}
+            <div className="flex flex-col gap-1 px-1">
+              <div className="flex justify-between items-center">
+                <span className="text-[11px] text-gray-400">Min Gap Size (px)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={minArea}
+                  onChange={e => {
+                    const v = Number(e.target.value);
+                    if (v >= 1 && v <= 500) onMinAreaChange(v);
+                  }}
+                  disabled={analyzing}
+                  className="w-16 text-right text-[11px] font-mono bg-gray-800 border border-gray-700
+                             text-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500
+                             disabled:opacity-40"
+                />
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={500}
+                step={1}
+                value={minArea}
+                onChange={e => onMinAreaChange(Number(e.target.value))}
+                disabled={analyzing}
+                className="w-full h-1.5 rounded-full appearance-none bg-gray-700
+                           accent-blue-500 disabled:opacity-40"
+              />
+              <div className="flex justify-between text-[9px] text-gray-600">
+                <span>1</span>
+                <span>500</span>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Step 2: Start Detection — shown after greyscale is applied, or when results exist */}
       {(isGreyscale || hasResult) && (
