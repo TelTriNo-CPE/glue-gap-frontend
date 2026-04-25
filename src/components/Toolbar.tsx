@@ -33,6 +33,7 @@ interface Props {
   onOutlineColorChange: (value: string) => void;
   onFillColorChange: (value: string) => void;
   onSelectedColorChange: (value: string) => void;
+  onResetColors: () => void;
 }
 
 const COLOR_PRESETS = ['#ff0000', '#2563eb', '#16a34a', '#eab308', '#9333ea'];
@@ -93,6 +94,7 @@ export default function Toolbar({
   onOutlineColorChange,
   onFillColorChange,
   onSelectedColorChange,
+  onResetColors,
 }: Props) {
   const [busy, setBusy] = useState<'excel' | 'jpeg' | null>(null);
 
@@ -189,9 +191,18 @@ export default function Toolbar({
       <Divider />
 
       <div className="px-1 py-2">
-        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-3 block px-1">
-          Appearance
-        </label>
+        <div className="mb-3 flex items-center justify-between px-1">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+            Appearance
+          </label>
+          <button
+            type="button"
+            onClick={onResetColors}
+            className="rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+          >
+            Reset
+          </button>
+        </div>
         <div className="flex flex-col gap-3">
           <ColorControlRow label="Outline" value={outlineColor} onChange={onOutlineColorChange} />
           <ColorControlRow label="Fill" value={fillColor} onChange={onFillColorChange} />

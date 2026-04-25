@@ -15,6 +15,9 @@ const TOAST_DURATION_MS  = 10_000;
 const DESKTOP_BREAKPOINT = 1024;
 const LEFT_PANEL_WIDTH = 256;
 const RIGHT_PANEL_WIDTH = 320;
+const DEFAULT_OUTLINE_COLOR = '#ff0000';
+const DEFAULT_FILL_COLOR = '#ff0000';
+const DEFAULT_SELECTED_COLOR = '#eab308';
 
 function getIsDesktop() {
   return typeof window !== 'undefined' && window.innerWidth >= DESKTOP_BREAKPOINT;
@@ -46,9 +49,9 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [minArea,      setMinArea]      = useState(20);
   const [showMinimap,  setShowMinimap]  = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [outlineColor, setOutlineColor] = useState('#ff0000');
-  const [fillColor, setFillColor] = useState('#ff0000');
-  const [selectedColor, setSelectedColor] = useState('#eab308');
+  const [outlineColor, setOutlineColor] = useState(DEFAULT_OUTLINE_COLOR);
+  const [fillColor, setFillColor] = useState(DEFAULT_FILL_COLOR);
+  const [selectedColor, setSelectedColor] = useState(DEFAULT_SELECTED_COLOR);
 
   const [isDesktop, setIsDesktop] = useState(getIsDesktop);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(getIsDesktop);
@@ -331,6 +334,12 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     setIsRightPanelOpen(false);
   }
 
+  function resetAppearanceColors() {
+    setOutlineColor(DEFAULT_OUTLINE_COLOR);
+    setFillColor(DEFAULT_FILL_COLOR);
+    setSelectedColor(DEFAULT_SELECTED_COLOR);
+  }
+
   return (
     <div 
       className="flex h-screen w-full overflow-hidden bg-gray-950"
@@ -431,6 +440,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             onOutlineColorChange={setOutlineColor}
             onFillColorChange={setFillColor}
             onSelectedColorChange={setSelectedColor}
+            onResetColors={resetAppearanceColors}
           />
         </div>
 
