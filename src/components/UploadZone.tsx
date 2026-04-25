@@ -102,6 +102,7 @@ export default function UploadZone({ onSuccess }: Props) {
         size: number;
       }>(UPLOAD_URL, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000, // 5 minutes — large files need more time
         onUploadProgress: (event: AxiosProgressEvent) => {
           if (event.total !== undefined && event.total > 0) {
             setProgress(Math.round((event.loaded / event.total) * 100));
