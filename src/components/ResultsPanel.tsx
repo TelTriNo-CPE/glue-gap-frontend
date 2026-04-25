@@ -96,25 +96,23 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
       className="bg-white border-l border-gray-200 flex flex-col overflow-hidden shrink-0"
       style={{ userSelect: isDragging ? 'none' : 'auto', width }}
     >
-      <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0">
-        <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">Analysis</h2>
-        {result && (
-          <button
-            onClick={() => allHidden ? onShowAllGaps() : onHideAllGaps()}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all
-              ${allHidden
-                ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
-            title={allHidden ? 'Show all overlays' : 'Hide all overlays'}
-          >
-            {allHidden ? <EyeOffIcon /> : <EyeIcon />}
-            {allHidden ? 'Show All' : 'Hide All'}
-          </button>
-        )}
-      </div>
-
       {result ? (
         <>
+          <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0">
+            <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">Analysis</h2>
+            <button
+              onClick={() => allHidden ? onShowAllGaps() : onHideAllGaps()}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all
+                ${allHidden
+                  ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+              title={allHidden ? 'Show all overlays' : 'Hide all overlays'}
+            >
+              {allHidden ? <EyeOffIcon /> : <EyeIcon />}
+              {allHidden ? 'Show All' : 'Hide All'}
+            </button>
+          </div>
+
           <div 
             style={{ height: topSectionHeight }}
             className="flex flex-col overflow-y-auto shrink-0 bg-white"
@@ -251,21 +249,21 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
           </div>
         </>
       ) : (
-        <div className="flex-1 w-full h-full bg-white dark:bg-gray-800 flex flex-col items-center justify-center text-center p-4">
+        <div className="flex-1 w-full h-full bg-white flex flex-col items-center justify-center text-center p-4">
           {error ? (
             <div className="p-4 w-full">
               <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>
             </div>
           ) : (
             <>
-              <svg className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" fill="none" viewBox="0 0 24 24"
+              <svg className="w-12 h-12 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24"
                   stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round"
                   d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21a48.25 48.25 0 01-8.135-.687c-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
               </svg>
               <div>
-                <p className="text-lg font-semibold text-gray-600 dark:text-gray-300">Waiting for analysis</p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
+                <p className="text-lg font-semibold text-gray-600">Waiting for analysis</p>
+                <p className="text-sm text-gray-400 mt-2">
                   Click "Switch to Greyscale" in the toolbar to begin
                 </p>
               </div>
