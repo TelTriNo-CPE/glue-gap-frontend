@@ -14,7 +14,7 @@ interface Props {
   clickMode: 'select' | 'deselect' | 'pan';
   grayscale: boolean;
   selectedGapIds: Set<number>;
-  onSelectGap: (id: number | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
+  onSelectGap: (id: number | number[] | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
   onVisibleGapsChange?: (visibleIds: Set<number>) => void;
 }
 
@@ -84,6 +84,12 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const retryRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animatingRef  = useRef(false);
   const rafIdRef      = useRef(0);
+  const marqueeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const marqueeStateRef  = useRef<{
+    isDragging: boolean;
+    startImg: { x: number; y: number };
+    currentImg: { x: number; y: number };
+  }>({ isDragging: false, startImg: { x: 0, y: 0 }, currentImg: { x: 0, y: 0 } });
 
   const [tilesReady, setTilesReady] = useState(false);
   const [elapsed,    setElapsed]    = useState(0);
@@ -365,6 +371,18 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     (viewer.canvas as HTMLElement).appendChild(overlayCanvas);
     canvasRef.current = overlayCanvas;
 
+    // Inject marquee canvas (above polygon overlay)
+    const marqueeCanvas = document.createElement('canvas');
+    marqueeCanvas.style.position = 'absolute';
+    marqueeCanvas.style.top = '0';
+    marqueeCanvas.style.left = '0';
+    marqueeCanvas.style.width = '100%';
+    marqueeCanvas.style.height = '100%';
+    marqueeCanvas.style.pointerEvents = 'none';
+    marqueeCanvas.style.zIndex = '1001';
+    (viewer.canvas as HTMLElement).appendChild(marqueeCanvas);
+    marqueeCanvasRef.current = marqueeCanvas;
+
     viewer.addHandler('open', () => {
       setTilesReady(true);
       stopTimer();
@@ -434,10 +452,176 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       }
     });
 
+    // ── Marquee drag handlers for batch select/deselect ──────────────────
+    viewer.addHandler('canvas-press', function(event: any) {
+      const mode = clickModeRef.current;
+      if (mode === 'pan') return;
+
+      if (!viewerRef.current || !viewerRef.current.isOpen()) return;
+      const tiledImage = viewerRef.current.world.getItemAt(0);
+      if (!tiledImage) return;
+
+      const viewportPoint = viewerRef.current.viewport.pointFromPixel(event.position, true);
+      const imgPoint = viewerRef.current.viewport.viewportToImageCoordinates(viewportPoint);
+
+      marqueeStateRef.current = {
+        isDragging: true,
+        startImg: { x: imgPoint.x, y: imgPoint.y },
+        currentImg: { x: imgPoint.x, y: imgPoint.y },
+      };
+
+      // Prevent OSD panning
+      event.preventDefaultAction = true;
+    });
+
+    viewer.addHandler('canvas-drag', function(event: any) {
+      if (!marqueeStateRef.current.isDragging) return;
+
+      const mode = clickModeRef.current;
+      if (mode === 'pan') {
+        marqueeStateRef.current.isDragging = false;
+        return;
+      }
+
+      const v = viewerRef.current;
+      if (!v || !v.isOpen()) return;
+
+      const viewportPoint = v.viewport.pointFromPixel(event.position, true);
+      const imgPoint = v.viewport.viewportToImageCoordinates(viewportPoint);
+      marqueeStateRef.current.currentImg = { x: imgPoint.x, y: imgPoint.y };
+
+      // Draw marquee rectangle on the dedicated marquee canvas
+      const mCanvas = marqueeCanvasRef.current;
+      if (!mCanvas) return;
+
+      const osdCanvas = v.canvas as HTMLElement;
+      const w = osdCanvas.clientWidth;
+      const h = osdCanvas.clientHeight;
+      if (mCanvas.width !== w || mCanvas.height !== h) {
+        mCanvas.width = w;
+        mCanvas.height = h;
+      }
+
+      const ctx = mCanvas.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, w, h);
+
+      const { startImg, currentImg } = marqueeStateRef.current;
+      const startVp = v.viewport.imageToViewportCoordinates(
+        new OpenSeadragon.Point(startImg.x, startImg.y),
+      );
+      const endVp = v.viewport.imageToViewportCoordinates(
+        new OpenSeadragon.Point(currentImg.x, currentImg.y),
+      );
+      const startPx = v.viewport.pixelFromPoint(startVp, true);
+      const endPx = v.viewport.pixelFromPoint(endVp, true);
+
+      const rx = Math.min(startPx.x, endPx.x);
+      const ry = Math.min(startPx.y, endPx.y);
+      const rw = Math.abs(endPx.x - startPx.x);
+      const rh = Math.abs(endPx.y - startPx.y);
+
+      if (mode === 'select') {
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
+        ctx.strokeStyle = 'rgba(59, 130, 246, 1)';
+      } else {
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+        ctx.strokeStyle = 'rgba(239, 68, 68, 1)';
+      }
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 3]);
+      ctx.fillRect(rx, ry, rw, rh);
+      ctx.strokeRect(rx, ry, rw, rh);
+      ctx.setLineDash([]);
+
+      event.preventDefaultAction = true;
+    });
+
+    viewer.addHandler('canvas-release', function() {
+      if (!marqueeStateRef.current.isDragging) return;
+      marqueeStateRef.current.isDragging = false;
+
+      // Clear marquee canvas immediately
+      const mCanvas = marqueeCanvasRef.current;
+      if (mCanvas) {
+        const ctx = mCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, mCanvas.width, mCanvas.height);
+      }
+
+      const mode = clickModeRef.current;
+      if (mode === 'pan') return;
+
+      const v = viewerRef.current;
+      if (!v || !v.isOpen()) return;
+
+      // Skip tiny drags — let canvas-click handle single-gap clicks
+      const { startImg, currentImg } = marqueeStateRef.current;
+      const startVp = v.viewport.imageToViewportCoordinates(
+        new OpenSeadragon.Point(startImg.x, startImg.y),
+      );
+      const endVp = v.viewport.imageToViewportCoordinates(
+        new OpenSeadragon.Point(currentImg.x, currentImg.y),
+      );
+      const startPx = v.viewport.pixelFromPoint(startVp, true);
+      const endPx = v.viewport.pixelFromPoint(endVp, true);
+      const screenDist = Math.hypot(endPx.x - startPx.x, endPx.y - startPx.y);
+      if (screenDist < 5) return;
+
+      // Bounding box in image coordinates
+      const minX = Math.min(startImg.x, currentImg.x);
+      const maxX = Math.max(startImg.x, currentImg.x);
+      const minY = Math.min(startImg.y, currentImg.y);
+      const maxY = Math.max(startImg.y, currentImg.y);
+
+      const currentGaps = gapsRef.current;
+      const tiledImage = v.world.getItemAt(0);
+      if (!tiledImage) return;
+      const imgSize = tiledImage.getContentSize();
+
+      const matchedIds: number[] = [];
+
+      for (let gi = 0; gi < currentGaps.length; gi++) {
+        const gap = currentGaps[gi];
+        const coords = getCoords(gap);
+        if (!coords) continue;
+
+        const isNorm = coords.every(v => v >= 0 && v <= 1);
+
+        // Check centroid first
+        const centroid = gap.centroid_norm;
+        if (centroid) {
+          const cx = centroid[0] * imgSize.x;
+          const cy = centroid[1] * imgSize.y;
+          if (cx >= minX && cx <= maxX && cy >= minY && cy <= maxY) {
+            matchedIds.push(gi);
+            continue;
+          }
+        }
+
+        // Check polygon vertices
+        for (let i = 0; i < coords.length; i += 2) {
+          const vx = isNorm ? coords[i] * imgSize.x : coords[i];
+          const vy = isNorm ? coords[i + 1] * imgSize.y : coords[i + 1];
+          if (vx >= minX && vx <= maxX && vy >= minY && vy <= maxY) {
+            matchedIds.push(gi);
+            break;
+          }
+        }
+      }
+
+      if (matchedIds.length > 0) {
+        onSelectGap(matchedIds, mode === 'select' ? 'select' : 'deselect');
+      }
+    });
+
     return () => {
       cancelAnimationFrame(rafIdRef.current);
       if (retryRef.current) clearTimeout(retryRef.current);
       stopTimer();
+      if (marqueeCanvasRef.current && marqueeCanvasRef.current.parentNode) {
+        marqueeCanvasRef.current.parentNode.removeChild(marqueeCanvasRef.current);
+      }
+      marqueeCanvasRef.current = null;
       if (canvasRef.current && canvasRef.current.parentNode) {
         canvasRef.current.parentNode.removeChild(canvasRef.current);
       }
@@ -496,7 +680,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     if (clickMode === 'pan') {
       canvas.style.cursor = 'grab';
     } else {
-      canvas.style.cursor = 'default';
+      canvas.style.cursor = 'crosshair';
     }
   }, [clickMode]);
 
