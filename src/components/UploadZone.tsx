@@ -7,10 +7,12 @@ type UploadStatus = 'idle' | 'uploading' | 'uploaded' | 'cancelling' | 'error';
 const UPLOAD_URL = '/upload/image';
 const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1 GB
 
-function formatSize(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024).toFixed(0)} KB`;
+function formatBytes(bytes: number): string {
+  if (bytes <= 0) return '0 B';
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
 }
 
 const ACCEPTED_FORMATS = ['TIFF', 'PNG', 'JPEG', 'BMP', 'WebP'];
@@ -20,7 +22,7 @@ function validateFile(file: File): string | null {
     return `"${file.name}" is not an image file. Accepted formats: ${ACCEPTED_FORMATS.join(', ')}.`;
   }
   if (file.size > MAX_FILE_SIZE) {
-    return `File too large (${formatSize(file.size)}). Maximum is 1 GB.`;
+    return `File too large (${formatBytes(file.size)}). Maximum is 1 GB.`;
   }
   return null;
 }
@@ -93,6 +95,12 @@ export default function UploadZone({ onSuccess }: Props) {
     setStatus('uploading');
     setProgress(0);
     setErrorMessage('');
+
+    // Capture native browser File.size immediately — this is always accurate
+    // regardless of what the backend/multer-s3 reports.
+    setUploadedName(file.name);
+    setUploadedSize(file.size);
+
     const formData = new FormData();
     formData.append('file', file);
     try {
@@ -111,7 +119,9 @@ export default function UploadZone({ onSuccess }: Props) {
       });
       setUploadedKey(data.key);
       setUploadedName(data.originalName);
-      setUploadedSize(data.size);
+      // Prefer native file.size (already set); only override if backend
+      // returned a valid non-zero value.
+      if (data.size > 0) setUploadedSize(data.size);
       setStatus('uploaded');
     } catch (err: unknown) {
       setStatus('error');
@@ -171,7 +181,7 @@ export default function UploadZone({ onSuccess }: Props) {
           <div className="text-center">
             <p className="text-lg font-semibold text-gray-800">Upload Complete</p>
             <p className="text-sm text-gray-500 mt-1 truncate max-w-xs">{uploadedName}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{formatSize(uploadedSize)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{formatBytes(uploadedSize)}</p>
           </div>
 
           <div className="flex gap-3 w-full">
