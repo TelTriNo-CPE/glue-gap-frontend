@@ -25,6 +25,8 @@ interface Props {
   onToggleMinimap: () => void;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
 }
 
 const btnClass =
@@ -75,6 +77,8 @@ export default function Toolbar({
   onToggleMinimap,
   isFullscreen,
   onToggleFullscreen,
+  onSelectAll,
+  onDeselectAll,
 }: Props) {
   const [busy, setBusy] = useState<'excel' | 'jpeg' | null>(null);
 
@@ -140,6 +144,30 @@ export default function Toolbar({
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
             Deselect
+          </button>
+        </div>
+      </div>
+
+      <Divider />
+
+      <div className="px-1 py-2">
+        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2 block px-1">
+          Bulk Actions
+        </label>
+        <div className="flex flex-row gap-2 w-full">
+          <button
+            onClick={onSelectAll}
+            disabled={!hasResult}
+            className="flex-1 rounded-lg bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Select All
+          </button>
+          <button
+            onClick={onDeselectAll}
+            disabled={!hasResult}
+            className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-xs font-semibold text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Deselect All
           </button>
         </div>
       </div>

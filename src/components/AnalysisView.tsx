@@ -225,6 +225,16 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     setHiddenGapIndices(new Set(result.gaps.map((_, i) => i)));
   }
 
+  function selectAllGaps() {
+    if (!result) return;
+    setSelectedGapIds(new Set(result.gaps.map((_, i) => i)));
+    setHiddenGapIndices(new Set());
+  }
+
+  function deselectAllGaps() {
+    setSelectedGapIds(new Set());
+  }
+
   function switchVersion(id: string) {
     setActiveVersionId(id);
     setSelectedGapIds(new Set());
@@ -410,6 +420,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             onToggleMinimap={() => setShowMinimap(prev => !prev)}
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}
+            onSelectAll={selectAllGaps}
+            onDeselectAll={deselectAllGaps}
           />
         </div>
 
