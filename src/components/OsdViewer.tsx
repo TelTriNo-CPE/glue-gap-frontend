@@ -404,6 +404,16 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     viewer.addHandler('update-viewport', scheduleRedraw);
     viewer.addHandler('resize', scheduleFullRedraw);
 
+    // Watch for container size changes (e.g. panel transitions)
+    const resizeObserver = new ResizeObserver(() => {
+      if (viewerRef.current) {
+        // We must tell OSD to re-check its container size
+        viewerRef.current.forceRedraw();
+        scheduleFullRedraw();
+      }
+    });
+    if (containerRef.current) resizeObserver.observe(containerRef.current);
+
     // Canvas click handler for gap selection
     viewer.addHandler('canvas-click', function(event) {
       if (!viewerRef.current || !viewerRef.current.isOpen()) return;
@@ -618,6 +628,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       cancelAnimationFrame(rafIdRef.current);
       if (retryRef.current) clearTimeout(retryRef.current);
       stopTimer();
+      resizeObserver.disconnect();
       if (marqueeCanvasRef.current && marqueeCanvasRef.current.parentNode) {
         marqueeCanvasRef.current.parentNode.removeChild(marqueeCanvasRef.current);
       }

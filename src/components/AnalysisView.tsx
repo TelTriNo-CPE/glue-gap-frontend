@@ -40,11 +40,26 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [showMinimap,  setShowMinimap]  = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  const [isLeftOpen, setIsLeftOpen]   = useState(window.innerWidth >= 1024);
+  const [isRightOpen, setIsRightOpen] = useState(window.innerWidth >= 1024);
+  const [isMobile, setIsMobile]       = useState(window.innerWidth < 1024);
+
   const [leftWidth, setLeftWidth] = useState(256);
   const [rightWidth, setRightWidth] = useState(320);
-  const [isLeftCollapsed, setIsLeftCollapsed] = useState(false);
-  const [isRightCollapsed, setIsRightCollapsed] = useState(false);
   const [draggingPanel, setDraggingPanel] = useState<'left' | 'right' | null>(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const mobile = window.innerWidth < 1024;
+      setIsMobile(mobile);
+      if (mobile) {
+        setIsLeftOpen(false);
+        setIsRightOpen(false);
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     if (!draggingPanel) return;
@@ -53,20 +68,20 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       if (draggingPanel === 'left') {
         const newWidth = e.clientX;
         if (newWidth < 150) {
-          setIsLeftCollapsed(true);
+          setIsLeftOpen(false);
           setDraggingPanel(null);
         } else {
           setLeftWidth(Math.min(newWidth, window.innerWidth / 2));
-          setIsLeftCollapsed(false);
+          setIsLeftOpen(true);
         }
       } else if (draggingPanel === 'right') {
         const newWidth = window.innerWidth - e.clientX;
         if (newWidth < 150) {
-          setIsRightCollapsed(true);
+          setIsRightOpen(false);
           setDraggingPanel(null);
         } else {
           setRightWidth(Math.min(newWidth, window.innerWidth / 2));
-          setIsRightCollapsed(false);
+          setIsRightOpen(true);
         }
       }
     };
@@ -317,9 +332,17 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         className="flex flex-1 min-w-0 bg-gray-950 relative overflow-hidden"
       >
         {/* Left Panel (Toolbar) */}
-        {!isLeftCollapsed && (
+        <div 
+          className={`
+            ${isMobile ? 'fixed inset-y-0 left-0 z-50 shadow-2xl' : 'relative h-full'}
+            transition-all duration-300 ease-in-out overflow-hidden bg-gray-900 shrink-0
+            ${isLeftOpen ? '' : 'w-0'}
+            ${isMobile && !isLeftOpen ? '-translate-x-full' : 'translate-x-0'}
+          `}
+          style={{ width: isLeftOpen ? (isMobile ? 280 : leftWidth) : 0 }}
+        >
           <Toolbar
-            width={leftWidth}
+            width={isMobile ? 280 : leftWidth}
             stem={stem}
             fileKey={fileKey}
             isGreyscale={grayscale}
@@ -343,91 +366,137 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             isFullscreen={isFullscreen}
             onToggleFullscreen={toggleFullscreen}
           />
-        )}
+        </div>
 
         {/* Left Resizer */}
-        {!isLeftCollapsed && (
+        {!isMobile && isLeftOpen && (
           <div
             onMouseDown={() => setDraggingPanel('left')}
             className="w-1 bg-gray-800 hover:bg-blue-600 cursor-col-resize transition-colors shrink-0 z-10"
           />
         )}
 
-        {/* Middle Panel (Viewer) */}
-        <OsdViewer
-          stem={stem}
-          gaps={result?.gaps ?? []}
-          hiddenGapIndices={hiddenGapIndices}
-          hideUnselected={hideUnselected}
-          isOutlineOnly={isOutlineOnly}
-          showMinimap={showMinimap}
-          isFullscreen={isFullscreen}
-          clickMode={clickMode}
-          grayscale={grayscale}
-          selectedGapIds={selectedGapIds}
-          onSelectGap={handleSelectGap}
-          onVisibleGapsChange={setVisibleGapIdsInViewport}
-        />
+        {/* Middle Panel (Viewer + Toggles) */}
+        <div className="flex-1 relative flex flex-col min-w-0">
+          {/* Mobile Toggles */}
+          {isMobile && (
+            <div className="absolute top-4 left-4 z-30 flex gap-2">
+              <button
+                onClick={() => setIsLeftOpen(true)}
+                className="bg-gray-800/80 backdrop-blur text-white p-2.5 rounded-xl border border-gray-700 shadow-xl"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                </svg>
+              </button>
+              {result && (
+                <button
+                  onClick={() => setIsRightOpen(true)}
+                  className="bg-gray-800/80 backdrop-blur text-white p-2.5 rounded-xl border border-gray-700 shadow-xl"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 5.25H21m-1.5-10.5H21m-1.5 5.25H21m-1.5 5.25H21" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          )}
 
-        {/* Right Resizer (inside viewer container to show in fullscreen) */}
-        {!isRightCollapsed && !isFullscreen && (
+          {/* Desktop Toggles */}
+          {!isMobile && !isFullscreen && (
+            <>
+              <button
+                onClick={() => setIsLeftOpen(!isLeftOpen)}
+                className={`absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-300
+                  ${isLeftOpen ? 'left-0' : 'left-0'}
+                  bg-gray-800/80 backdrop-blur hover:bg-gray-700 text-gray-400 hover:text-white 
+                  p-1.5 rounded-r-lg border border-l-0 border-gray-700 shadow-lg group`}
+                title={isLeftOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
+              >
+                <svg className={`w-4 h-8 transition-transform ${isLeftOpen ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                </svg>
+              </button>
+
+              <button
+                onClick={() => setIsRightOpen(!isRightOpen)}
+                className={`absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-300
+                  ${isRightOpen ? 'right-0' : 'right-0'}
+                  bg-gray-800/80 backdrop-blur hover:bg-gray-700 text-gray-400 hover:text-white 
+                  p-1.5 rounded-l-lg border border-r-0 border-gray-700 shadow-lg group`}
+                title={isRightOpen ? 'Collapse Results' : 'Expand Results'}
+              >
+                <svg className={`w-4 h-8 transition-transform ${isRightOpen ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                </svg>
+              </button>
+            </>
+          )}
+
+          <OsdViewer
+            stem={stem}
+            gaps={result?.gaps ?? []}
+            hiddenGapIndices={hiddenGapIndices}
+            hideUnselected={hideUnselected}
+            isOutlineOnly={isOutlineOnly}
+            showMinimap={showMinimap}
+            isFullscreen={isFullscreen}
+            clickMode={clickMode}
+            grayscale={grayscale}
+            selectedGapIds={selectedGapIds}
+            onSelectGap={handleSelectGap}
+            onVisibleGapsChange={setVisibleGapIdsInViewport}
+          />
+        </div>
+
+        {/* Right Resizer */}
+        {!isMobile && isRightOpen && !isFullscreen && (
           <div
             onMouseDown={() => setDraggingPanel('right')}
             className="w-1 bg-gray-800 hover:bg-blue-600 cursor-col-resize transition-colors shrink-0 z-10"
           />
         )}
 
-        {/* Floating Triangle Toggles */}
-        {isLeftCollapsed && (
-          <button
-            onClick={() => setIsLeftCollapsed(false)}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-50 bg-gray-800 hover:bg-gray-700 
-                       text-gray-400 hover:text-white p-1 rounded-r-md border border-l-0 border-gray-700
-                       transition-all shadow-lg group"
-            title="Expand Sidebar"
-          >
-            <svg className="w-4 h-8 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-            </svg>
-          </button>
-        )}
+        {/* Right Panel (Results) */}
+        <div 
+          className={`
+            ${isMobile ? 'fixed inset-y-0 right-0 z-50 shadow-2xl' : 'relative h-full'}
+            transition-all duration-300 ease-in-out overflow-hidden bg-gray-900 shrink-0
+            ${isRightOpen ? '' : 'w-0'}
+            ${isMobile && !isRightOpen ? 'translate-x-full' : 'translate-x-0'}
+          `}
+          style={{ width: isRightOpen ? (isMobile ? 320 : rightWidth) : 0 }}
+        >
+          {!isFullscreen && (
+            <ResultsPanel
+              width={isMobile ? 320 : rightWidth}
+              result={result}
+              error={analyzeError}
+              hiddenGapIndices={hiddenGapIndices}
+              onToggleGap={toggleGap}
+              onShowAllGaps={showAllGaps}
+              onHideAllGaps={hideAllGaps}
+              selectedGapIds={selectedGapIds}
+              onSelectGap={handleSelectGap}
+              isSyncViewport={isSyncViewport}
+              onToggleSyncViewport={() => setIsSyncViewport(prev => !prev)}
+              visibleGapIdsInViewport={visibleGapIdsInViewport}
+              detectionHistory={detectionHistory}
+              activeVersionId={activeVersionId}
+              onSwitchVersion={switchVersion}
+              onDeleteVersion={deleteVersion}
+            />
+          )}
+        </div>
 
-        {isRightCollapsed && !isFullscreen && (
-          <button
-            onClick={() => setIsRightCollapsed(false)}
-            className="absolute right-0 top-1/2 -translate-y-1/2 z-50 bg-gray-800 hover:bg-gray-700 
-                       text-gray-400 hover:text-white p-1 rounded-l-md border border-r-0 border-gray-700
-                       transition-all shadow-lg group"
-            title="Expand Results"
-          >
-            <svg className="w-4 h-8 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-            </svg>
-          </button>
+        {/* Mobile Backdrop */}
+        {isMobile && (isLeftOpen || isRightOpen) && (
+          <div 
+            onClick={() => { setIsLeftOpen(false); setIsRightOpen(false); }}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity"
+          />
         )}
       </div>
-
-      {/* Right Panel (Results) */}
-      {!isRightCollapsed && !isFullscreen && (
-        <ResultsPanel
-          width={rightWidth}
-          result={result}
-          error={analyzeError}
-          hiddenGapIndices={hiddenGapIndices}
-          onToggleGap={toggleGap}
-          onShowAllGaps={showAllGaps}
-          onHideAllGaps={hideAllGaps}
-          selectedGapIds={selectedGapIds}
-          onSelectGap={handleSelectGap}
-          isSyncViewport={isSyncViewport}
-          onToggleSyncViewport={() => setIsSyncViewport(prev => !prev)}
-          visibleGapIdsInViewport={visibleGapIdsInViewport}
-          detectionHistory={detectionHistory}
-          activeVersionId={activeVersionId}
-          onSwitchVersion={switchVersion}
-          onDeleteVersion={deleteVersion}
-        />
-      )}
     </div>
   );
 }
