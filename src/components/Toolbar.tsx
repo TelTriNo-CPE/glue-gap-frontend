@@ -27,7 +27,15 @@ interface Props {
   onToggleFullscreen: () => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
+  outlineColor: string;
+  fillColor: string;
+  selectedColor: string;
+  onOutlineColorChange: (value: string) => void;
+  onFillColorChange: (value: string) => void;
+  onSelectedColorChange: (value: string) => void;
 }
+
+const COLOR_PRESETS = ['#ff0000', '#2563eb', '#16a34a', '#eab308', '#9333ea'];
 
 const btnClass =
   'flex flex-row items-center gap-3 px-4 py-3 w-full rounded-lg text-sm font-medium ' +
@@ -79,6 +87,12 @@ export default function Toolbar({
   onToggleFullscreen,
   onSelectAll,
   onDeselectAll,
+  outlineColor,
+  fillColor,
+  selectedColor,
+  onOutlineColorChange,
+  onFillColorChange,
+  onSelectedColorChange,
 }: Props) {
   const [busy, setBusy] = useState<'excel' | 'jpeg' | null>(null);
 
@@ -169,6 +183,19 @@ export default function Toolbar({
           >
             Deselect All
           </button>
+        </div>
+      </div>
+
+      <Divider />
+
+      <div className="px-1 py-2">
+        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-3 block px-1">
+          Appearance
+        </label>
+        <div className="flex flex-col gap-3">
+          <ColorControlRow label="Outline" value={outlineColor} onChange={onOutlineColorChange} />
+          <ColorControlRow label="Fill" value={fillColor} onChange={onFillColorChange} />
+          <ColorControlRow label="Selected" value={selectedColor} onChange={onSelectedColorChange} />
         </div>
       </div>
 
@@ -387,5 +414,48 @@ export default function Toolbar({
         </>
       )}
     </aside>
+  );
+}
+
+function ColorControlRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-950/60 px-3 py-2.5">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold text-gray-300">{label}</span>
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-8 w-10 cursor-pointer rounded-md border border-gray-700 bg-gray-900 p-1"
+          aria-label={`${label} color`}
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        {COLOR_PRESETS.map((preset) => {
+          const isActive = preset.toLowerCase() === value.toLowerCase();
+          return (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => onChange(preset)}
+              className={`h-6 w-6 rounded-full border transition-all ${
+                isActive ? 'scale-110 border-white shadow-[0_0_0_2px_rgba(255,255,255,0.15)]' : 'border-gray-700 hover:border-gray-400'
+              }`}
+              style={{ backgroundColor: preset }}
+              aria-label={`Set ${label} color to ${preset}`}
+              title={preset}
+            />
+          );
+        })}
+      </div>
+    </div>
   );
 }

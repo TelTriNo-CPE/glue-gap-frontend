@@ -17,11 +17,12 @@ interface Props {
   onSelectGap: (id: number | number[] | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
   onVisibleGapsChange?: (visibleIds: Set<number>) => void;
   layoutSignal?: number;
+  outlineColor: string;
+  fillColor: string;
+  selectedColor: string;
 }
 
 // ─── Drawing constants ────────────────────────────────────────────────────────
-const STROKE_COLOR = '#ff0000';
-const FILL_COLOR   = 'rgba(255, 0, 0, 0.12)';
 const LINE_WIDTH   = 2;
 
 // Minimum screen-pixel area to bother drawing during animation (LOD skip)
@@ -78,7 +79,20 @@ function getCoords(gap: unknown): number[] | undefined {
   return undefined;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0 }: Props) {
+function hexToRgba(hex: string, alpha: number) {
+  const normalized = hex.replace('#', '');
+  const value = normalized.length === 3
+    ? normalized.split('').map((char) => char + char).join('')
+    : normalized;
+
+  const r = Number.parseInt(value.slice(0, 2), 16);
+  const g = Number.parseInt(value.slice(2, 4), 16);
+  const b = Number.parseInt(value.slice(4, 6), 16);
+
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, selectedColor }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -104,6 +118,9 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const clickModeRef  = useRef<'select' | 'deselect' | 'pan'>(clickMode);
   const onVisibleGapsChangeRef = useRef(onVisibleGapsChange);
   const lastVisibleGapsRef = useRef<Set<number>>(new Set());
+  const outlineColorRef = useRef(outlineColor);
+  const fillColorRef = useRef(fillColor);
+  const selectedColorRef = useRef(selectedColor);
 
   useEffect(() => { gapsRef.current = gaps; }, [gaps]);
   useEffect(() => { hiddenRef.current = hiddenGapIndices; }, [hiddenGapIndices]);
@@ -112,6 +129,9 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   useEffect(() => { isOutlineOnlyRef.current = isOutlineOnly; }, [isOutlineOnly]);
   useEffect(() => { clickModeRef.current = clickMode; }, [clickMode]);
   useEffect(() => { onVisibleGapsChangeRef.current = onVisibleGapsChange; }, [onVisibleGapsChange]);
+  useEffect(() => { outlineColorRef.current = outlineColor; }, [outlineColor]);
+  useEffect(() => { fillColorRef.current = fillColor; }, [fillColor]);
+  useEffect(() => { selectedColorRef.current = selectedColor; }, [selectedColor]);
 
   const startTimer = useCallback(() => {
     setElapsed(0);
@@ -178,9 +198,13 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     const imgH = imgSize.y;
 
     // ── 2. Context state batching: set styles ONCE before the loop ──────
-    ctx.strokeStyle = STROKE_COLOR;
+    const currentOutlineColor = outlineColorRef.current;
+    const currentFillColor = fillColorRef.current;
+    const currentSelectedColor = selectedColorRef.current;
+
+    ctx.strokeStyle = currentOutlineColor;
     ctx.lineWidth   = LINE_WIDTH;
-    ctx.fillStyle   = FILL_COLOR;
+    ctx.fillStyle   = hexToRgba(currentFillColor, 0.3);
     ctx.lineJoin    = 'miter';
 
     let drawn = 0;
@@ -261,17 +285,19 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         ctx.closePath();
         if (currentSelected.has(gi)) {
           ctx.save();
-          ctx.strokeStyle = '#FFD600';
+          ctx.strokeStyle = currentSelectedColor;
           ctx.lineWidth = isOutlineOnly ? 6 : 4;
           ctx.stroke();
           if (!isOutlineOnly) {
-            ctx.fillStyle = 'rgba(255, 255, 0, 0.4)';
+            ctx.fillStyle = hexToRgba(currentSelectedColor, 0.5);
             ctx.fill();
           }
           ctx.restore();
         } else {
+          ctx.strokeStyle = currentOutlineColor;
           ctx.stroke();
           if (!isOutlineOnly) {
+            ctx.fillStyle = hexToRgba(currentFillColor, 0.3);
             ctx.fill();
           }
         }
@@ -646,7 +672,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   // Redraw whenever gap data or visibility changes
   useEffect(() => {
     scheduleFullRedraw();
-  }, [gaps, hiddenGapIndices, selectedGapIds, hideUnselected, isOutlineOnly, scheduleFullRedraw]);
+  }, [gaps, hiddenGapIndices, selectedGapIds, hideUnselected, isOutlineOnly, outlineColor, fillColor, selectedColor, scheduleFullRedraw]);
 
   // Safely handle fullscreen transitions — stagger redraws to let the DOM settle
   // before OSD reads container dimensions.

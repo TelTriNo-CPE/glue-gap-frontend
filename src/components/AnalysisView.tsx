@@ -46,6 +46,9 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [minArea,      setMinArea]      = useState(20);
   const [showMinimap,  setShowMinimap]  = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [outlineColor, setOutlineColor] = useState('#ff0000');
+  const [fillColor, setFillColor] = useState('#ff0000');
+  const [selectedColor, setSelectedColor] = useState('#eab308');
 
   const [isDesktop, setIsDesktop] = useState(getIsDesktop);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(getIsDesktop);
@@ -422,6 +425,12 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             onToggleFullscreen={toggleFullscreen}
             onSelectAll={selectAllGaps}
             onDeselectAll={deselectAllGaps}
+            outlineColor={outlineColor}
+            fillColor={fillColor}
+            selectedColor={selectedColor}
+            onOutlineColorChange={setOutlineColor}
+            onFillColorChange={setFillColor}
+            onSelectedColorChange={setSelectedColor}
           />
         </div>
 
@@ -524,6 +533,9 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
               onSelectGap={handleSelectGap}
               onVisibleGapsChange={setVisibleGapIdsInViewport}
               layoutSignal={layoutTick}
+              outlineColor={outlineColor}
+              fillColor={fillColor}
+              selectedColor={selectedColor}
             />
           </div>
         </div>
