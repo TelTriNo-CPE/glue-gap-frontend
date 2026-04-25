@@ -7,7 +7,12 @@ export default defineConfig({
   server: {
     proxy: {
       // api-gateway (port 3030)
-      '/upload': 'http://localhost:3030',
+      // Upload needs generous timeouts for 400 MB+ files
+      '/upload': {
+        target: 'http://localhost:3030',
+        timeout: 600000,       // 10 min – proxy ↔ backend socket
+        proxyTimeout: 600000,  // 10 min – proxy connect timeout
+      },
       '/results': 'http://localhost:3030',
       '/tiles': 'http://localhost:3030',
       // image-processor (port 8080) — specific paths before catch-all /exports
