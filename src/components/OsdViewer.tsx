@@ -712,12 +712,12 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   }, [clickMode]);
 
   return (
-    <div className="flex-1 relative bg-black overflow-hidden" style={{ minWidth: 0 }}>
+    <div className="absolute inset-0 w-full h-full bg-black overflow-hidden">
 
       {/* OSD container — no filter here; grayscale applied to drawer canvas directly */}
       <div
         ref={containerRef}
-        className="absolute inset-0"
+        className="absolute inset-0 w-full h-full"
       />
 
       {/* Polygon overlay canvas is injected programmatically into viewer.canvas */}

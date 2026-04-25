@@ -320,7 +320,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
 
   return (
     <div 
-      className="relative flex h-screen bg-gray-950 overflow-hidden"
+      className="flex h-screen w-full overflow-hidden bg-gray-950"
       style={{ userSelect: draggingPanel ? 'none' : 'auto' }}
     >
 
@@ -374,7 +374,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
 
       <div 
         ref={viewerContainerRef}
-        className="flex flex-1 min-w-0 bg-gray-950 relative overflow-hidden"
+        className="flex flex-1 h-full min-w-0 min-h-0 bg-gray-950 relative overflow-hidden"
       >
         {/* Left Panel (Toolbar) */}
         <div 
@@ -422,7 +422,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         )}
 
         {/* Middle Panel (Viewer + Toggles) */}
-        <div className="flex-1 relative flex flex-col min-w-0">
+        <div className="flex-1 relative flex flex-col h-full min-w-0 min-h-0">
           {/* Mobile Toggles */}
           {!isDesktop && (
             <div className="absolute top-4 left-4 right-4 z-30 flex items-center justify-between gap-3 pointer-events-none">
@@ -497,7 +497,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             </>
           )}
 
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 relative h-full min-w-0 min-h-0">
             <OsdViewer
               stem={stem}
               gaps={result?.gaps ?? []}

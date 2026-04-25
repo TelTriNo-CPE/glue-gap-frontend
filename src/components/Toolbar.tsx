@@ -33,7 +33,7 @@ const btnClass =
   'disabled:opacity-40 disabled:cursor-not-allowed';
 
 const toggleBtnClass = (active: boolean) =>
-  `flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+  `w-full flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
     active ? 'bg-blue-600 text-white shadow-inner' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
   }`;
 
@@ -112,7 +112,7 @@ export default function Toolbar({
         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2 block px-1">
           Click Mode
         </label>
-        <div className="flex bg-gray-950 p-1 rounded-lg gap-1">
+        <div className="flex flex-col w-full bg-gray-950 p-1 rounded-lg gap-2">
           <button
             onClick={() => setClickMode('pan')}
             className={toggleBtnClass(clickMode === 'pan')}
