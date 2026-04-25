@@ -33,7 +33,7 @@ const btnClass =
   'disabled:opacity-40 disabled:cursor-not-allowed';
 
 const toggleBtnClass = (active: boolean) =>
-  `w-full flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+  `flex-1 min-w-[4.5rem] flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
     active ? 'bg-blue-600 text-white shadow-inner' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
   }`;
 
@@ -92,7 +92,7 @@ export default function Toolbar({
 
   return (
     <aside 
-      className="bg-gray-900 flex flex-col py-4 px-3 gap-1 shrink-0"
+      className="bg-gray-900 flex flex-col py-4 px-3 gap-1 shrink-0 h-full overflow-y-auto"
       style={{ width }}
     >
 
@@ -112,7 +112,7 @@ export default function Toolbar({
         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2 block px-1">
           Click Mode
         </label>
-        <div className="flex flex-col w-full bg-gray-950 p-1 rounded-lg gap-2">
+        <div className="flex flex-wrap w-full bg-gray-950 p-1 rounded-lg gap-2">
           <button
             onClick={() => setClickMode('pan')}
             className={toggleBtnClass(clickMode === 'pan')}
@@ -220,7 +220,7 @@ export default function Toolbar({
       {(isGreyscale || hasResult) && (
         <>
           <Divider />
-          <div className="px-1 py-2 flex flex-col gap-3">
+          <div className="px-1 py-2 flex flex-col gap-3 w-full">
             <div className="flex items-center justify-between px-1">
               <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
                 Detection Settings
@@ -238,7 +238,7 @@ export default function Toolbar({
             </div>
 
             {/* Sensitivity slider */}
-            <div className="flex flex-col gap-1 px-1">
+            <div className="flex flex-col gap-1 w-full px-1">
               <div className="flex justify-between items-center">
                 <span className="text-[11px] text-gray-400">Sensitivity</span>
                 <span className="text-[11px] font-mono text-gray-300">{sensitivity}</span>
@@ -261,7 +261,7 @@ export default function Toolbar({
             </div>
 
             {/* Min Area input */}
-            <div className="flex flex-col gap-1 px-1">
+            <div className="flex flex-col gap-1 w-full px-1">
               <div className="flex justify-between items-center">
                 <span className="text-[11px] text-gray-400">Min Gap Size (px)</span>
                 <input
