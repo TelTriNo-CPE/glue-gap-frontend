@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import type { AnalysisResult, DetectionParams, DetectionVersion } from '../types';
+import type { AnalysisResult, DetectionVersion } from '../types';
 import Toolbar from './Toolbar';
 import OsdViewer from './OsdViewer';
 import ResultsPanel from './ResultsPanel';

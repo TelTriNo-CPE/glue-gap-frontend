@@ -401,7 +401,6 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       const x = imgPoint.x, y = imgPoint.y;
 
       const currentGaps = gapsRef.current;
-      const currentClickMode = clickModeRef.current;
 
       let found = null;
       for (let gi = 0; gi < currentGaps.length; gi++) {
