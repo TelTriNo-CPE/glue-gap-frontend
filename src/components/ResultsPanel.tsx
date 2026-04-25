@@ -270,7 +270,7 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
                 <div>
                   <p className="text-sm font-medium text-gray-500">Waiting for analysis</p>
                   <p className="text-xs text-gray-400 mt-1">
-                    Click "Change to Greyscale" in the toolbar to begin
+                    Click "Switch to Greyscale" in the toolbar to begin
                   </p>
                 </div>
               </div>

@@ -32,7 +32,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [hideUnselected,   setHideUnselected]    = useState(false);
   const [isOutlineOnly,    setIsOutlineOnly]     = useState(false);
   const [hiddenGapIndices, setHiddenGapIndices]  = useState<Set<number>>(new Set());
-  const [clickMode,        setClickMode]         = useState<'select' | 'deselect'>('select');
+  const [clickMode,        setClickMode]         = useState<'select' | 'deselect' | 'pan'>('select');
   const [isSyncViewport,   setIsSyncViewport]    = useState(false);
   const [visibleGapIdsInViewport, setVisibleGapIdsInViewport] = useState<Set<number>>(new Set());
   const [sensitivity,  setSensitivity]  = useState(50);

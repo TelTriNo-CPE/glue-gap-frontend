@@ -15,8 +15,8 @@ interface Props {
   onToggleOutlineOnly: () => void;
   onDetect: () => void;
   onReset: () => void;
-  clickMode: 'select' | 'deselect';
-  setClickMode: (mode: 'select' | 'deselect') => void;
+  clickMode: 'select' | 'deselect' | 'pan';
+  setClickMode: (mode: 'select' | 'deselect' | 'pan') => void;
   sensitivity: number;
   onSensitivityChange: (value: number) => void;
   minArea: number;
@@ -113,6 +113,16 @@ export default function Toolbar({
           Click Mode
         </label>
         <div className="flex bg-gray-950 p-1 rounded-lg gap-1">
+          <button
+            onClick={() => setClickMode('pan')}
+            className={toggleBtnClass(clickMode === 'pan')}
+            title="Pan / Move (Hand Tool)"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 14V6a2 2 0 0 1 2-2v0a2 2 0 0 1 2 2v0m-4 6V4a2 2 0 0 1 2-2v0a2 2 0 0 1 2 2v0m-4 6V6a2 2 0 0 1 2-2v0a2 2 0 0 1 2 2v0M6 15l-1.5-1.5a2 2 0 1 0-2.83 2.83l3.6 3.6A8 8 0 0 0 12 22h1a8 8 0 0 0 8-8V8a2 2 0 1 0-4 0v6" />
+            </svg>
+            Pan
+          </button>
           <button
             onClick={() => setClickMode('select')}
             className={toggleBtnClass(clickMode === 'select')}

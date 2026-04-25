@@ -11,7 +11,7 @@ interface Props {
   isOutlineOnly: boolean;
   showMinimap: boolean;
   isFullscreen: boolean;
-  clickMode: 'select' | 'deselect';
+  clickMode: 'select' | 'deselect' | 'pan';
   grayscale: boolean;
   selectedGapIds: Set<number>;
   onSelectGap: (id: number | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
@@ -94,7 +94,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const selectedRef   = useRef<Set<number>>(selectedGapIds);
   const hideUnselectedRef = useRef<boolean>(hideUnselected);
   const isOutlineOnlyRef = useRef<boolean>(isOutlineOnly);
-  const clickModeRef  = useRef<'select' | 'deselect'>(clickMode);
+  const clickModeRef  = useRef<'select' | 'deselect' | 'pan'>(clickMode);
   const onVisibleGapsChangeRef = useRef(onVisibleGapsChange);
   const lastVisibleGapsRef = useRef<Set<number>>(new Set());
 
@@ -389,6 +389,10 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     // Canvas click handler for gap selection
     viewer.addHandler('canvas-click', function(event) {
       if (!viewerRef.current || !viewerRef.current.isOpen()) return;
+      
+      const currentClickMode = clickModeRef.current;
+      if (currentClickMode === 'pan') return;
+
       const viewportPoint = viewerRef.current.viewport.pointFromPixel(event.position, true);
       const tiledImage = viewerRef.current.world.getItemAt(0);
       if (!tiledImage) return;
@@ -484,6 +488,18 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       (viewer as any).navigator.element.style.display = showMinimap ? 'block' : 'none';
     }
   }, [showMinimap]);
+
+  // Update cursor based on clickMode
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    const canvas = viewer.canvas as HTMLElement;
+    if (clickMode === 'pan') {
+      canvas.style.cursor = 'grab';
+    } else {
+      canvas.style.cursor = 'default';
+    }
+  }, [clickMode]);
 
   return (
     <div className="flex-1 relative bg-black overflow-hidden" style={{ minWidth: 0 }}>
