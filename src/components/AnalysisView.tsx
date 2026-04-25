@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import type { AnalysisResult, DetectionVersion } from '../types';
 import Toolbar from './Toolbar';
@@ -12,6 +12,13 @@ interface Props {
 
 const ANALYZE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const TOAST_DURATION_MS  = 10_000;
+const DESKTOP_BREAKPOINT = 1024;
+const LEFT_PANEL_WIDTH = 256;
+const RIGHT_PANEL_WIDTH = 320;
+
+function getIsDesktop() {
+  return typeof window !== 'undefined' && window.innerWidth >= DESKTOP_BREAKPOINT;
+}
 
 export default function AnalysisView({ fileKey, onReset }: Props) {
   const [selectedGapIds, setSelectedGapIds] = useState<Set<number>>(new Set());
@@ -40,26 +47,47 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [showMinimap,  setShowMinimap]  = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  const [isLeftOpen, setIsLeftOpen]   = useState(window.innerWidth >= 1024);
-  const [isRightOpen, setIsRightOpen] = useState(window.innerWidth >= 1024);
-  const [isMobile, setIsMobile]       = useState(window.innerWidth < 1024);
-
-  const [leftWidth, setLeftWidth] = useState(256);
-  const [rightWidth, setRightWidth] = useState(320);
+  const [isDesktop, setIsDesktop] = useState(getIsDesktop);
+  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(getIsDesktop);
+  const [isRightPanelOpen, setIsRightPanelOpen] = useState(getIsDesktop);
+  const [leftWidth, setLeftWidth] = useState(LEFT_PANEL_WIDTH);
+  const [rightWidth, setRightWidth] = useState(RIGHT_PANEL_WIDTH);
   const [draggingPanel, setDraggingPanel] = useState<'left' | 'right' | null>(null);
+  const [layoutTick, setLayoutTick] = useState(0);
 
   useEffect(() => {
     const handleResize = () => {
-      const mobile = window.innerWidth < 1024;
-      setIsMobile(mobile);
-      if (mobile) {
-        setIsLeftOpen(false);
-        setIsRightOpen(false);
+      const desktop = getIsDesktop();
+
+      setIsDesktop(prev => {
+        if (prev !== desktop) {
+          setIsLeftPanelOpen(desktop);
+          setIsRightPanelOpen(desktop);
+        }
+        return desktop;
+      });
+
+      if (desktop) {
+        setLeftWidth(prev => Math.min(Math.max(prev, 220), Math.floor(window.innerWidth * 0.35)));
+        setRightWidth(prev => Math.min(Math.max(prev, 280), Math.floor(window.innerWidth * 0.4)));
       }
     };
+
+    handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    const timers = [0, 150, 320].map(delay =>
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+        setLayoutTick(prev => prev + 1);
+      }, delay),
+    );
+
+    return () => timers.forEach(clearTimeout);
+  }, [isDesktop, isLeftPanelOpen, isRightPanelOpen, leftWidth, rightWidth, isFullscreen]);
 
   useEffect(() => {
     if (!draggingPanel) return;
@@ -68,20 +96,20 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       if (draggingPanel === 'left') {
         const newWidth = e.clientX;
         if (newWidth < 150) {
-          setIsLeftOpen(false);
+          setIsLeftPanelOpen(false);
           setDraggingPanel(null);
         } else {
           setLeftWidth(Math.min(newWidth, window.innerWidth / 2));
-          setIsLeftOpen(true);
+          setIsLeftPanelOpen(true);
         }
       } else if (draggingPanel === 'right') {
         const newWidth = window.innerWidth - e.clientX;
         if (newWidth < 150) {
-          setIsRightOpen(false);
+          setIsRightPanelOpen(false);
           setDraggingPanel(null);
         } else {
           setRightWidth(Math.min(newWidth, window.innerWidth / 2));
-          setIsRightOpen(true);
+          setIsRightPanelOpen(true);
         }
       }
     };
@@ -272,6 +300,23 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   }
 
   const overlayVisible = analyzing || parsing;
+  const mobileLeftPanelWidth = Math.min(leftWidth, 320);
+  const mobileRightPanelWidth = Math.min(rightWidth, 360);
+
+  function openLeftPanel() {
+    setIsLeftPanelOpen(true);
+    if (!isDesktop) setIsRightPanelOpen(false);
+  }
+
+  function openRightPanel() {
+    setIsRightPanelOpen(true);
+    if (!isDesktop) setIsLeftPanelOpen(false);
+  }
+
+  function closePanels() {
+    setIsLeftPanelOpen(false);
+    setIsRightPanelOpen(false);
+  }
 
   return (
     <div 
@@ -334,15 +379,15 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         {/* Left Panel (Toolbar) */}
         <div 
           className={`
-            ${isMobile ? 'fixed inset-y-0 left-0 z-50 shadow-2xl' : 'relative h-full'}
+            ${isDesktop ? 'relative h-full' : 'fixed inset-y-0 left-0 z-50 shadow-2xl'}
             transition-all duration-300 ease-in-out overflow-hidden bg-gray-900 shrink-0
-            ${isLeftOpen ? '' : 'w-0'}
-            ${isMobile && !isLeftOpen ? '-translate-x-full' : 'translate-x-0'}
+            ${isDesktop ? '' : 'max-w-[85vw]'}
+            ${isDesktop ? (isLeftPanelOpen ? 'translate-x-0' : 'translate-x-0') : (isLeftPanelOpen ? 'translate-x-0' : '-translate-x-full')}
           `}
-          style={{ width: isLeftOpen ? (isMobile ? 280 : leftWidth) : 0 }}
+          style={{ width: isLeftPanelOpen ? (isDesktop ? leftWidth : mobileLeftPanelWidth) : 0 }}
         >
           <Toolbar
-            width={isMobile ? 280 : leftWidth}
+            width={isDesktop ? leftWidth : mobileLeftPanelWidth}
             stem={stem}
             fileKey={fileKey}
             isGreyscale={grayscale}
@@ -369,7 +414,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         </div>
 
         {/* Left Resizer */}
-        {!isMobile && isLeftOpen && (
+        {isDesktop && isLeftPanelOpen && (
           <div
             onMouseDown={() => setDraggingPanel('left')}
             className="w-1 bg-gray-800 hover:bg-blue-600 cursor-col-resize transition-colors shrink-0 z-10"
@@ -379,78 +424,100 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         {/* Middle Panel (Viewer + Toggles) */}
         <div className="flex-1 relative flex flex-col min-w-0">
           {/* Mobile Toggles */}
-          {isMobile && (
-            <div className="absolute top-4 left-4 z-30 flex gap-2">
+          {!isDesktop && (
+            <div className="absolute top-4 left-4 right-4 z-30 flex items-center justify-between gap-3 pointer-events-none">
               <button
-                onClick={() => setIsLeftOpen(true)}
-                className="bg-gray-800/80 backdrop-blur text-white p-2.5 rounded-xl border border-gray-700 shadow-xl"
+                onClick={() => isLeftPanelOpen ? closePanels() : openLeftPanel()}
+                className="pointer-events-auto bg-gray-800/80 backdrop-blur text-white p-2.5 rounded-xl border border-gray-700 shadow-xl"
+                aria-label={isLeftPanelOpen ? 'Close left panel' : 'Open left panel'}
               >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                  {isLeftPanelOpen ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 19.5 15.75 12 8.25 4.5" />
+                  )}
                 </svg>
               </button>
-              {result && (
-                <button
-                  onClick={() => setIsRightOpen(true)}
-                  className="bg-gray-800/80 backdrop-blur text-white p-2.5 rounded-xl border border-gray-700 shadow-xl"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 5.25H21m-1.5-10.5H21m-1.5 5.25H21m-1.5 5.25H21" />
-                  </svg>
-                </button>
-              )}
+              <div className="pointer-events-none rounded-full bg-black/25 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.2em] text-gray-300 backdrop-blur-sm">
+                Viewer
+              </div>
+              <button
+                onClick={() => isRightPanelOpen ? closePanels() : openRightPanel()}
+                className="pointer-events-auto bg-gray-800/80 backdrop-blur text-white p-2.5 rounded-xl border border-gray-700 shadow-xl"
+                aria-label={isRightPanelOpen ? 'Close right panel' : 'Open right panel'}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                  {isRightPanelOpen ? (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+                  ) : (
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m15.75 4.5-7.5 7.5 7.5 7.5" />
+                  )}
+                </svg>
+              </button>
             </div>
           )}
 
-          {/* Desktop Toggles */}
-          {!isMobile && !isFullscreen && (
+          {/* Desktop Edge Toggles */}
+          {isDesktop && !isFullscreen && (
             <>
               <button
-                onClick={() => setIsLeftOpen(!isLeftOpen)}
-                className={`absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-300
-                  ${isLeftOpen ? 'left-0' : 'left-0'}
-                  bg-gray-800/80 backdrop-blur hover:bg-gray-700 text-gray-400 hover:text-white 
-                  p-1.5 rounded-r-lg border border-l-0 border-gray-700 shadow-lg group`}
-                title={isLeftOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
+                onClick={() => setIsLeftPanelOpen(prev => !prev)}
+                className="absolute left-0 top-1/2 z-30 -translate-y-1/2 rounded-r-lg border border-l-0 border-gray-700 bg-gray-800/85 p-1.5 text-gray-300 shadow-lg backdrop-blur transition-all duration-300 hover:bg-gray-700 hover:text-white"
+                title={isLeftPanelOpen ? 'Collapse left panel' : 'Expand left panel'}
+                aria-label={isLeftPanelOpen ? 'Collapse left panel' : 'Expand left panel'}
               >
-                <svg className={`w-4 h-8 transition-transform ${isLeftOpen ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <svg
+                  className={`h-8 w-4 transition-transform duration-300 ${isLeftPanelOpen ? '' : 'rotate-180'}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.6}
+                >
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                 </svg>
               </button>
 
               <button
-                onClick={() => setIsRightOpen(!isRightOpen)}
-                className={`absolute top-1/2 -translate-y-1/2 z-30 transition-all duration-300
-                  ${isRightOpen ? 'right-0' : 'right-0'}
-                  bg-gray-800/80 backdrop-blur hover:bg-gray-700 text-gray-400 hover:text-white 
-                  p-1.5 rounded-l-lg border border-r-0 border-gray-700 shadow-lg group`}
-                title={isRightOpen ? 'Collapse Results' : 'Expand Results'}
+                onClick={() => setIsRightPanelOpen(prev => !prev)}
+                className="absolute right-0 top-1/2 z-30 -translate-y-1/2 rounded-l-lg border border-r-0 border-gray-700 bg-gray-800/85 p-1.5 text-gray-300 shadow-lg backdrop-blur transition-all duration-300 hover:bg-gray-700 hover:text-white"
+                title={isRightPanelOpen ? 'Collapse right panel' : 'Expand right panel'}
+                aria-label={isRightPanelOpen ? 'Collapse right panel' : 'Expand right panel'}
               >
-                <svg className={`w-4 h-8 transition-transform ${isRightOpen ? '' : 'rotate-180'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                <svg
+                  className={`h-8 w-4 transition-transform duration-300 ${isRightPanelOpen ? '' : 'rotate-180'}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.6}
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
                 </svg>
               </button>
             </>
           )}
 
-          <OsdViewer
-            stem={stem}
-            gaps={result?.gaps ?? []}
-            hiddenGapIndices={hiddenGapIndices}
-            hideUnselected={hideUnselected}
-            isOutlineOnly={isOutlineOnly}
-            showMinimap={showMinimap}
-            isFullscreen={isFullscreen}
-            clickMode={clickMode}
-            grayscale={grayscale}
-            selectedGapIds={selectedGapIds}
-            onSelectGap={handleSelectGap}
-            onVisibleGapsChange={setVisibleGapIdsInViewport}
-          />
+          <div className="flex-1 min-w-0">
+            <OsdViewer
+              stem={stem}
+              gaps={result?.gaps ?? []}
+              hiddenGapIndices={hiddenGapIndices}
+              hideUnselected={hideUnselected}
+              isOutlineOnly={isOutlineOnly}
+              showMinimap={showMinimap}
+              isFullscreen={isFullscreen}
+              clickMode={clickMode}
+              grayscale={grayscale}
+              selectedGapIds={selectedGapIds}
+              onSelectGap={handleSelectGap}
+              onVisibleGapsChange={setVisibleGapIdsInViewport}
+              layoutSignal={layoutTick}
+            />
+          </div>
         </div>
 
         {/* Right Resizer */}
-        {!isMobile && isRightOpen && !isFullscreen && (
+        {isDesktop && isRightPanelOpen && !isFullscreen && (
           <div
             onMouseDown={() => setDraggingPanel('right')}
             className="w-1 bg-gray-800 hover:bg-blue-600 cursor-col-resize transition-colors shrink-0 z-10"
@@ -460,16 +527,16 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         {/* Right Panel (Results) */}
         <div 
           className={`
-            ${isMobile ? 'fixed inset-y-0 right-0 z-50 shadow-2xl' : 'relative h-full'}
+            ${isDesktop ? 'relative h-full' : 'fixed inset-y-0 right-0 z-50 shadow-2xl'}
             transition-all duration-300 ease-in-out overflow-hidden bg-gray-900 shrink-0
-            ${isRightOpen ? '' : 'w-0'}
-            ${isMobile && !isRightOpen ? 'translate-x-full' : 'translate-x-0'}
+            ${isDesktop ? '' : 'max-w-[92vw]'}
+            ${isDesktop ? (isRightPanelOpen ? 'translate-x-0' : 'translate-x-0') : (isRightPanelOpen ? 'translate-x-0' : 'translate-x-full')}
           `}
-          style={{ width: isRightOpen ? (isMobile ? 320 : rightWidth) : 0 }}
+          style={{ width: isRightPanelOpen ? (isDesktop ? rightWidth : mobileRightPanelWidth) : 0 }}
         >
           {!isFullscreen && (
             <ResultsPanel
-              width={isMobile ? 320 : rightWidth}
+              width={isDesktop ? rightWidth : mobileRightPanelWidth}
               result={result}
               error={analyzeError}
               hiddenGapIndices={hiddenGapIndices}
@@ -490,10 +557,10 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         </div>
 
         {/* Mobile Backdrop */}
-        {isMobile && (isLeftOpen || isRightOpen) && (
+        {!isDesktop && (isLeftPanelOpen || isRightPanelOpen) && (
           <div 
-            onClick={() => { setIsLeftOpen(false); setIsRightOpen(false); }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity"
+            onClick={closePanels}
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity duration-300"
           />
         )}
       </div>

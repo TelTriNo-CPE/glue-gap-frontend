@@ -16,6 +16,7 @@ interface Props {
   selectedGapIds: Set<number>;
   onSelectGap: (id: number | number[] | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
   onVisibleGapsChange?: (visibleIds: Set<number>) => void;
+  layoutSignal?: number;
 }
 
 // ─── Drawing constants ────────────────────────────────────────────────────────
@@ -77,7 +78,7 @@ function getCoords(gap: unknown): number[] | undefined {
   return undefined;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange }: Props) {
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0 }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -664,6 +665,21 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     return () => timeouts.forEach(clearTimeout);
   }, [isFullscreen, scheduleFullRedraw]);
 
+  useEffect(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+
+    const timeouts = [0, 180, 320].map(delay =>
+      setTimeout(() => {
+        if (!viewerRef.current) return;
+        viewerRef.current.forceRedraw();
+        scheduleFullRedraw();
+      }, delay),
+    );
+
+    return () => timeouts.forEach(clearTimeout);
+  }, [layoutSignal, scheduleFullRedraw]);
+
   // Apply grayscale only to OSD's drawing surface, not our overlay
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -727,4 +743,3 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     </div>
   );
 }
-
