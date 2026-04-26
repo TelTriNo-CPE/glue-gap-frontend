@@ -167,12 +167,20 @@ export function applyEraser(
   radius: number,
   imgW: number,
   imgH: number,
+  selectedIds: number[],
   minArea = 4,
 ): Gap[] {
   const circle = createPixelCircle(center.x, center.y, radius);
   const result: Gap[] = [];
+  const hasSelection = selectedIds.length > 0;
 
   for (let i = 0; i < gaps.length; i++) {
+    // If there's a selection, only erase from selected gaps
+    if (hasSelection && !selectedIds.includes(i)) {
+      result.push(gaps[i]);
+      continue;
+    }
+
     const turfGap = gapToTurfPolygon(gaps[i], imgW, imgH);
 
     let intersects = false;

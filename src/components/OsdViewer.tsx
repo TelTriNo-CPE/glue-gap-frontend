@@ -527,7 +527,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       if (mode === 'brush') {
         newGaps = applyBrush(currentGaps, { x: imgX, y: imgY }, brushRadius, size.width, size.height);
       } else {
-        newGaps = applyEraser(currentGaps, { x: imgX, y: imgY }, brushRadius, size.width, size.height);
+        const selectedIds = Array.from(selectedRef.current);
+        newGaps = applyEraser(currentGaps, { x: imgX, y: imgY }, brushRadius, size.width, size.height, selectedIds);
       }
 
       // Optimistic update to prevent stale data on rapid stamps
