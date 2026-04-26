@@ -472,7 +472,6 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       // Convert brush radius from image pixels to screen pixels
       const tiledImage = v.world.getItemAt(0);
       if (!tiledImage) return;
-      const imgSize = tiledImage.getContentSize();
       const brushRadius = brushSizeRef.current / 2;
 
       // Get a reference point and an offset point to compute scale

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { AnalysisResult } from './types';
+import type { AnalysisResult, Gap } from './types';
 
 export async function analyzeGaps(key: string): Promise<AnalysisResult> {
   const { data } = await axios.post<AnalysisResult>('/analyze-gaps', { key });
@@ -29,4 +29,11 @@ export async function downloadJpeg(key: string, stem: string) {
   a.href = data.url;
   a.download = `${stem}-annotated.jpg`;
   a.click();
+}
+
+export async function saveAnalysisGaps(analysisId: string, gaps: Gap[]) {
+  await axios.put(`/analysis/${encodeURIComponent(analysisId)}/gaps`, {
+    key: analysisId,
+    gaps,
+  });
 }

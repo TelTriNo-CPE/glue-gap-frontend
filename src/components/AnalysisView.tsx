@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import type { AnalysisResult, ClickMode, DetectionVersion, Gap } from '../types';
+import { saveAnalysisGaps } from '../api';
+import type { AnalysisResult, ClickMode, DetectionVersion, Gap, RadiusStats } from '../types';
+import useGapHistory from '../hooks/useGapHistory';
 import Toolbar from './Toolbar';
 import OsdViewer from './OsdViewer';
 import ResultsPanel from './ResultsPanel';
@@ -18,6 +20,8 @@ const RIGHT_PANEL_WIDTH = 320;
 const DEFAULT_OUTLINE_COLOR = '#ff0000';
 const DEFAULT_FILL_COLOR = '#ff0000';
 const DEFAULT_SELECTED_COLOR = '#eab308';
+const EDIT_HISTORY_LIMIT = 30;
+const EMPTY_GAPS: Gap[] = [];
 
 function getIsDesktop() {
   return typeof window !== 'undefined' && window.innerWidth >= DESKTOP_BREAKPOINT;
@@ -44,7 +48,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [hiddenGapIndices, setHiddenGapIndices]  = useState<Set<number>>(new Set());
   const [clickMode,        setClickMode]         = useState<ClickMode>('select');
   const [brushSize,        setBrushSize]         = useState(20);
-  const [editedGaps,       setEditedGaps]        = useState<Gap[] | null>(null);
+  const [isSaving,         setIsSaving]          = useState(false);
   const [isSyncViewport,   setIsSyncViewport]    = useState(false);
   const [visibleGapIdsInViewport, setVisibleGapIdsInViewport] = useState<Set<number>>(new Set());
   const [sensitivity,  setSensitivity]  = useState(50);
@@ -54,8 +58,18 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [outlineColor, setOutlineColor] = useState(DEFAULT_OUTLINE_COLOR);
   const [fillColor, setFillColor] = useState(DEFAULT_FILL_COLOR);
   const [selectedColor, setSelectedColor] = useState(DEFAULT_SELECTED_COLOR);
+  const {
+    present,
+    hasEdits,
+    canUndo,
+    canRedo,
+    commit: commitGapEdits,
+    undo,
+    redo,
+    reset: resetGapEdits,
+  } = useGapHistory(result?.gaps ?? null, EDIT_HISTORY_LIMIT);
 
-  const displayGaps = editedGaps ?? result?.gaps ?? [];
+  const displayGaps = present ?? result?.gaps ?? EMPTY_GAPS;
 
   const [isDesktop, setIsDesktop] = useState(getIsDesktop);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(getIsDesktop);
@@ -164,6 +178,11 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     setGrayscale(prev => !prev);
   }
 
+  const clearGapInteractionState = useCallback(() => {
+    setSelectedGapIds(new Set());
+    setHiddenGapIndices(new Set());
+  }, []);
+
   function handleSelectGap(
     id: number | number[] | null,
     mode: 'select' | 'deselect' | 'toggle' | 'clear' = 'select'
@@ -231,8 +250,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   }
 
   function hideAllGaps() {
-    if (!result) return;
-    setHiddenGapIndices(new Set(result.gaps.map((_, i) => i)));
+    if (displayGaps.length === 0) return;
+    setHiddenGapIndices(new Set(displayGaps.map((_, i) => i)));
   }
 
   function selectAllGaps() {
@@ -245,23 +264,99 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     setSelectedGapIds(new Set());
   }
 
-  function handleGapsModified(newGaps: Gap[]) {
-    setEditedGaps(newGaps);
-    setSelectedGapIds(new Set());
-    setHiddenGapIndices(new Set());
-  }
+  const handleGapsModified = useCallback((newGaps: Gap[]) => {
+    if (commitGapEdits(newGaps)) {
+      clearGapInteractionState();
+    }
+  }, [clearGapInteractionState, commitGapEdits]);
 
-  function handleResetEdits() {
-    setEditedGaps(null);
-    setSelectedGapIds(new Set());
-    setHiddenGapIndices(new Set());
+  const handleUndo = useCallback(() => {
+    if (undo()) {
+      clearGapInteractionState();
+    }
+  }, [clearGapInteractionState, undo]);
+
+  const handleRedo = useCallback(() => {
+    if (redo()) {
+      clearGapInteractionState();
+    }
+  }, [clearGapInteractionState, redo]);
+
+  const handleResetEdits = useCallback(() => {
+    resetGapEdits();
+    clearGapInteractionState();
+  }, [clearGapInteractionState, resetGapEdits]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isEditableTarget(event.target)) return;
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+
+      const key = event.key.toLowerCase();
+
+      if (key === 'z') {
+        if (event.shiftKey) {
+          if (!canRedo || isSaving) return;
+          event.preventDefault();
+          handleRedo();
+          return;
+        }
+
+        if (!canUndo || isSaving) return;
+        event.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      if (key === 'y' && !event.shiftKey) {
+        if (!canRedo || isSaving) return;
+        event.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canRedo, canUndo, handleRedo, handleUndo, isSaving]);
+
+  async function handleSaveEdits() {
+    if (!result || !present || isSaving) return;
+
+    setIsSaving(true);
+
+    try {
+      await saveAnalysisGaps(fileKey, present);
+
+      setDetectionHistory(prev =>
+        prev.map(version =>
+          version.id === activeVersionId
+            ? {
+                ...version,
+                result: {
+                  ...version.result,
+                  gaps: present,
+                  gap_count: present.length,
+                  radius_stats: calculateRadiusStats(present),
+                },
+              }
+            : version,
+        ),
+      );
+
+      resetGapEdits();
+      clearGapInteractionState();
+      setVisibleGapIdsInViewport(new Set());
+    } catch (err: unknown) {
+      setToast(extractErrorMessage(err));
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   function switchVersion(id: string) {
     setActiveVersionId(id);
-    setEditedGaps(null);
-    setSelectedGapIds(new Set());
-    setHiddenGapIndices(new Set());
+    resetGapEdits();
+    clearGapInteractionState();
     setVisibleGapIdsInViewport(new Set());
   }
 
@@ -318,9 +413,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       };
       setDetectionHistory(prev => [...prev, newVersion]);
       setActiveVersionId(newVersion.id);
-      setEditedGaps(null);
-      setSelectedGapIds(new Set());
-      setHiddenGapIndices(new Set());
+      resetGapEdits();
+      clearGapInteractionState();
       setVisibleGapIdsInViewport(new Set());
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
@@ -444,7 +538,13 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             setClickMode={setClickMode}
             brushSize={brushSize}
             onBrushSizeChange={setBrushSize}
-            hasEdits={editedGaps !== null}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            hasEdits={hasEdits}
+            isSaving={isSaving}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onSaveEdits={handleSaveEdits}
             onResetEdits={handleResetEdits}
             sensitivity={sensitivity}
             onSensitivityChange={setSensitivity}
@@ -629,6 +729,45 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
 }
 
 // ─── Error message extraction ────────────────────────────────────────────────
+
+function calculateRadiusStats(gaps: Gap[]): RadiusStats | null {
+  if (gaps.length === 0) {
+    return null;
+  }
+
+  const radii = gaps
+    .map((gap) => gap.equiv_radius_px)
+    .sort((left, right) => left - right);
+  const sum = radii.reduce((total, radius) => total + radius, 0);
+  const mean = sum / radii.length;
+  const middleIndex = Math.floor(radii.length / 2);
+  const median = radii.length % 2 === 0
+    ? (radii[middleIndex - 1] + radii[middleIndex]) / 2
+    : radii[middleIndex];
+  const variance = radii.reduce((total, radius) => total + (radius - mean) ** 2, 0) / radii.length;
+
+  return {
+    min: radii[0],
+    max: radii[radii.length - 1],
+    mean,
+    median,
+    std: Math.sqrt(variance),
+  };
+}
+
+function isEditableTarget(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (target.isContentEditable || target.closest('[contenteditable="true"]')) {
+    return true;
+  }
+
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement;
+}
 
 function extractErrorMessage(err: unknown): string {
   if (!axios.isAxiosError(err)) {
