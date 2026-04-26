@@ -31,9 +31,9 @@ export async function downloadJpeg(key: string, stem: string) {
   a.click();
 }
 
-export async function saveAnalysisGaps(analysisId: string, gaps: Gap[]) {
-  await axios.put(`/analysis/${encodeURIComponent(analysisId)}/gaps`, {
-    key: analysisId,
+export async function saveAnalysisGaps(stem: string, gaps: Gap[]): Promise<AnalysisResult> {
+  const { data } = await axios.put<AnalysisResult>(`/results/${encodeURIComponent(stem)}/gaps`, {
     gaps,
   });
+  return data;
 }
