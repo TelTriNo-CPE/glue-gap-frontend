@@ -272,6 +272,19 @@ export default function Toolbar({
 
       <Divider />
 
+      {/* Toggle Greyscale / Color */}
+      <button
+        onClick={onGreyscale}
+        className={`${btnClass} ${isGreyscale ? 'text-blue-400' : ''}`}
+      >
+        <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M12 3v18M9 6.343A8 8 0 1 0 15 17.657" />
+          <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        {isGreyscale ? 'Switch to Color' : 'Switch to Greyscale'}
+      </button>
+
       {/* Hide Unselected Toggle */}
       <button
         onClick={onToggleHideUnselected}
@@ -327,19 +340,6 @@ export default function Toolbar({
           </svg>
         )}
         {isFullscreen ? 'Exit Full Screen' : 'Full Screen'}
-      </button>
-
-      {/* Toggle Greyscale / Color */}
-      <button
-        onClick={onGreyscale}
-        className={`${btnClass} ${isGreyscale ? 'text-blue-400' : ''}`}
-      >
-        <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-          <path strokeLinecap="round" strokeLinejoin="round"
-            d="M12 3v18M9 6.343A8 8 0 1 0 15 17.657" />
-          <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        {isGreyscale ? 'Switch to Color' : 'Switch to Greyscale'}
       </button>
 
       {/* Detection Settings — shown when detection is available */}
