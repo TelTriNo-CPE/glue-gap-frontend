@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import OpenSeadragon from 'openseadragon';
 import { getDziUrl } from '../api';
-import type { Gap } from '../types';
+import type { Gap, ClickMode } from '../types';
+import { applyBrush, applyEraser } from '../utils/turfBridge';
 
 interface Props {
   stem: string;
@@ -11,7 +12,7 @@ interface Props {
   isOutlineOnly: boolean;
   showMinimap: boolean;
   isFullscreen: boolean;
-  clickMode: 'select' | 'deselect' | 'pan';
+  clickMode: ClickMode;
   grayscale: boolean;
   selectedGapIds: Set<number>;
   onSelectGap: (id: number | number[] | null, mode?: 'select' | 'deselect' | 'toggle' | 'clear') => void;
@@ -20,6 +21,9 @@ interface Props {
   outlineColor: string;
   fillColor: string;
   selectedColor: string;
+  brushSize: number;
+  onGapsModified?: (newGaps: Gap[]) => void;
+  imageSize: { width: number; height: number } | null;
 }
 
 // ─── Drawing constants ────────────────────────────────────────────────────────
@@ -92,7 +96,7 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, selectedColor }: Props) {
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, selectedColor, brushSize, onGapsModified, imageSize }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -100,11 +104,14 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const animatingRef  = useRef(false);
   const rafIdRef      = useRef(0);
   const marqueeCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const brushCursorCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const marqueeStateRef  = useRef<{
     isDragging: boolean;
     startImg: { x: number; y: number };
     currentImg: { x: number; y: number };
   }>({ isDragging: false, startImg: { x: 0, y: 0 }, currentImg: { x: 0, y: 0 } });
+  const isPaintingRef = useRef(false);
+  const lastPaintImgRef = useRef<{ x: number; y: number } | null>(null);
 
   const [tilesReady, setTilesReady] = useState(false);
   const [elapsed,    setElapsed]    = useState(0);
@@ -115,12 +122,15 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const selectedRef   = useRef<Set<number>>(selectedGapIds);
   const hideUnselectedRef = useRef<boolean>(hideUnselected);
   const isOutlineOnlyRef = useRef<boolean>(isOutlineOnly);
-  const clickModeRef  = useRef<'select' | 'deselect' | 'pan'>(clickMode);
+  const clickModeRef  = useRef<ClickMode>(clickMode);
   const onVisibleGapsChangeRef = useRef(onVisibleGapsChange);
   const lastVisibleGapsRef = useRef<Set<number>>(new Set());
   const outlineColorRef = useRef(outlineColor);
   const fillColorRef = useRef(fillColor);
   const selectedColorRef = useRef(selectedColor);
+  const brushSizeRef = useRef(brushSize);
+  const onGapsModifiedRef = useRef(onGapsModified);
+  const imageSizeRef = useRef(imageSize);
 
   useEffect(() => { gapsRef.current = gaps; }, [gaps]);
   useEffect(() => { hiddenRef.current = hiddenGapIndices; }, [hiddenGapIndices]);
@@ -130,6 +140,9 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   useEffect(() => { clickModeRef.current = clickMode; }, [clickMode]);
   useEffect(() => { onVisibleGapsChangeRef.current = onVisibleGapsChange; }, [onVisibleGapsChange]);
   useEffect(() => { outlineColorRef.current = outlineColor; }, [outlineColor]);
+  useEffect(() => { brushSizeRef.current = brushSize; }, [brushSize]);
+  useEffect(() => { onGapsModifiedRef.current = onGapsModified; }, [onGapsModified]);
+  useEffect(() => { imageSizeRef.current = imageSize; }, [imageSize]);
   useEffect(() => { fillColorRef.current = fillColor; }, [fillColor]);
   useEffect(() => { selectedColorRef.current = selectedColor; }, [selectedColor]);
 
@@ -410,6 +423,111 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     (viewer.canvas as HTMLElement).appendChild(marqueeCanvas);
     marqueeCanvasRef.current = marqueeCanvas;
 
+    // Inject brush cursor canvas (same z-level as marquee — mutually exclusive)
+    const brushCursorCanvas = document.createElement('canvas');
+    brushCursorCanvas.style.position = 'absolute';
+    brushCursorCanvas.style.top = '0';
+    brushCursorCanvas.style.left = '0';
+    brushCursorCanvas.style.width = '100%';
+    brushCursorCanvas.style.height = '100%';
+    brushCursorCanvas.style.pointerEvents = 'none';
+    brushCursorCanvas.style.zIndex = '1001';
+    (viewer.canvas as HTMLElement).appendChild(brushCursorCanvas);
+    brushCursorCanvasRef.current = brushCursorCanvas;
+
+    // ── Brush cursor rendering ──────────────────────────────────────────
+    const osdCanvasEl = viewer.canvas as HTMLElement;
+    function drawBrushCursor(e: MouseEvent) {
+      const bCanvas = brushCursorCanvasRef.current;
+      if (!bCanvas) return;
+      const mode = clickModeRef.current;
+      if (mode !== 'brush' && mode !== 'eraser') {
+        const ctx = bCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+        return;
+      }
+
+      const v = viewerRef.current;
+      if (!v || !v.isOpen()) return;
+
+      const w = osdCanvasEl.clientWidth;
+      const h = osdCanvasEl.clientHeight;
+      if (bCanvas.width !== w || bCanvas.height !== h) {
+        bCanvas.width = w;
+        bCanvas.height = h;
+      }
+
+      const ctx = bCanvas.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, w, h);
+
+      // Convert brush radius from image pixels to screen pixels
+      const tiledImage = v.world.getItemAt(0);
+      if (!tiledImage) return;
+      const imgSize = tiledImage.getContentSize();
+      const brushRadius = brushSizeRef.current / 2;
+
+      // Get a reference point and an offset point to compute scale
+      const rect = osdCanvasEl.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      // Convert mouse position to image coordinates
+      const mouseWebPoint = new OpenSeadragon.Point(mouseX, mouseY);
+      const mouseVpPoint = v.viewport.pointFromPixel(mouseWebPoint, true);
+      const mouseImgPoint = v.viewport.viewportToImageCoordinates(mouseVpPoint);
+
+      // Compute screen radius: offset by brush radius in image space and measure screen distance
+      const offsetImgPoint = new OpenSeadragon.Point(mouseImgPoint.x + brushRadius, mouseImgPoint.y);
+      const offsetVpPoint = v.viewport.imageToViewportCoordinates(offsetImgPoint);
+      const offsetScreenPoint = v.viewport.pixelFromPoint(offsetVpPoint, true);
+      const centerVpPoint = v.viewport.imageToViewportCoordinates(new OpenSeadragon.Point(mouseImgPoint.x, mouseImgPoint.y));
+      const centerScreenPoint = v.viewport.pixelFromPoint(centerVpPoint, true);
+      const screenRadius = Math.abs(offsetScreenPoint.x - centerScreenPoint.x);
+
+      const color = mode === 'brush' ? 'rgba(34, 197, 94,' : 'rgba(239, 68, 68,';
+
+      ctx.beginPath();
+      ctx.arc(mouseX, mouseY, screenRadius, 0, 2 * Math.PI);
+      ctx.strokeStyle = color + '0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color + '0.15)';
+      ctx.fill();
+    }
+
+    function clearBrushCursor() {
+      const bCanvas = brushCursorCanvasRef.current;
+      if (bCanvas) {
+        const ctx = bCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+      }
+    }
+
+    osdCanvasEl.addEventListener('mousemove', drawBrushCursor);
+    osdCanvasEl.addEventListener('mouseleave', clearBrushCursor);
+
+    // ── Paint stamp helper ──────────────────────────────────────────────
+    function applyPaintStamp(imgX: number, imgY: number, mode: 'brush' | 'eraser') {
+      const currentGaps = gapsRef.current;
+      const size = imageSizeRef.current;
+      if (!size) return;
+      const brushRadius = brushSizeRef.current / 2;
+
+      let newGaps: Gap[];
+      if (mode === 'brush') {
+        newGaps = applyBrush(currentGaps, { x: imgX, y: imgY }, brushRadius, size.width, size.height);
+      } else {
+        newGaps = applyEraser(currentGaps, { x: imgX, y: imgY }, brushRadius, size.width, size.height);
+      }
+
+      // Optimistic update to prevent stale data on rapid stamps
+      gapsRef.current = newGaps;
+      onGapsModifiedRef.current?.(newGaps);
+    }
+
     viewer.addHandler('open', () => {
       setTilesReady(true);
       stopTimer();
@@ -444,9 +562,14 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     // Canvas click handler for gap selection
     viewer.addHandler('canvas-click', function(event) {
       if (!viewerRef.current || !viewerRef.current.isOpen()) return;
-      
+
       const currentClickMode = clickModeRef.current;
       if (currentClickMode === 'pan') return;
+      // Brush/eraser handled by canvas-press/drag/release
+      if (currentClickMode === 'brush' || currentClickMode === 'eraser') {
+        event.preventDefaultAction = true;
+        return;
+      }
 
       const viewportPoint = viewerRef.current.viewport.pointFromPixel(event.position, true);
       const tiledImage = viewerRef.current.world.getItemAt(0);
@@ -490,6 +613,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     });
 
     // ── Marquee drag handlers for batch select/deselect ──────────────────
+    // ── Brush/eraser paint handlers ──────────────────────────────────────
     viewer.addHandler('canvas-press', function(event: any) {
       const mode = clickModeRef.current;
       if (mode === 'pan') return;
@@ -500,6 +624,15 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
       const viewportPoint = viewerRef.current.viewport.pointFromPixel(event.position, true);
       const imgPoint = viewerRef.current.viewport.viewportToImageCoordinates(viewportPoint);
+
+      if (mode === 'brush' || mode === 'eraser') {
+        isPaintingRef.current = true;
+        lastPaintImgRef.current = { x: imgPoint.x, y: imgPoint.y };
+        applyPaintStamp(imgPoint.x, imgPoint.y, mode);
+        scheduleFullRedraw();
+        event.preventDefaultAction = true;
+        return;
+      }
 
       marqueeStateRef.current = {
         isDragging: true,
@@ -512,9 +645,44 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     });
 
     viewer.addHandler('canvas-drag', function(event: any) {
+      const mode = clickModeRef.current;
+
+      // Handle brush/eraser drag painting
+      if ((mode === 'brush' || mode === 'eraser') && isPaintingRef.current) {
+        const v = viewerRef.current;
+        if (!v || !v.isOpen()) return;
+
+        const viewportPoint = v.viewport.pointFromPixel(event.position, true);
+        const imgPoint = v.viewport.viewportToImageCoordinates(viewportPoint);
+        const last = lastPaintImgRef.current;
+        const brushRadius = brushSizeRef.current / 2;
+        const minDist = brushRadius * 0.5;
+
+        if (last) {
+          const dx = imgPoint.x - last.x;
+          const dy = imgPoint.y - last.y;
+          const dist = Math.hypot(dx, dy);
+
+          if (dist >= minDist) {
+            // Interpolate stamps along the path for smooth coverage
+            const steps = Math.ceil(dist / minDist);
+            for (let s = 1; s <= steps; s++) {
+              const t = s / steps;
+              const ix = last.x + dx * t;
+              const iy = last.y + dy * t;
+              applyPaintStamp(ix, iy, mode);
+            }
+            lastPaintImgRef.current = { x: imgPoint.x, y: imgPoint.y };
+            scheduleFullRedraw();
+          }
+        }
+
+        event.preventDefaultAction = true;
+        return;
+      }
+
       if (!marqueeStateRef.current.isDragging) return;
 
-      const mode = clickModeRef.current;
       if (mode === 'pan') {
         marqueeStateRef.current.isDragging = false;
         return;
@@ -575,6 +743,13 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     });
 
     viewer.addHandler('canvas-release', function() {
+      // End brush/eraser painting
+      if (isPaintingRef.current) {
+        isPaintingRef.current = false;
+        lastPaintImgRef.current = null;
+        return;
+      }
+
       if (!marqueeStateRef.current.isDragging) return;
       marqueeStateRef.current.isDragging = false;
 
@@ -656,6 +831,12 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       if (retryRef.current) clearTimeout(retryRef.current);
       stopTimer();
       resizeObserver.disconnect();
+      osdCanvasEl.removeEventListener('mousemove', drawBrushCursor);
+      osdCanvasEl.removeEventListener('mouseleave', clearBrushCursor);
+      if (brushCursorCanvasRef.current && brushCursorCanvasRef.current.parentNode) {
+        brushCursorCanvasRef.current.parentNode.removeChild(brushCursorCanvasRef.current);
+      }
+      brushCursorCanvasRef.current = null;
       if (marqueeCanvasRef.current && marqueeCanvasRef.current.parentNode) {
         marqueeCanvasRef.current.parentNode.removeChild(marqueeCanvasRef.current);
       }
@@ -732,6 +913,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     const canvas = viewer.canvas as HTMLElement;
     if (clickMode === 'pan') {
       canvas.style.cursor = 'grab';
+    } else if (clickMode === 'brush' || clickMode === 'eraser') {
+      canvas.style.cursor = 'none';
     } else {
       canvas.style.cursor = 'crosshair';
     }

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { downloadExcel, downloadJpeg } from '../api';
+import type { ClickMode } from '../types';
 
 interface Props {
   width?: number;
@@ -15,8 +16,12 @@ interface Props {
   onToggleOutlineOnly: () => void;
   onDetect: () => void;
   onReset: () => void;
-  clickMode: 'select' | 'deselect' | 'pan';
-  setClickMode: (mode: 'select' | 'deselect' | 'pan') => void;
+  clickMode: ClickMode;
+  setClickMode: (mode: ClickMode) => void;
+  brushSize: number;
+  onBrushSizeChange: (value: number) => void;
+  hasEdits: boolean;
+  onResetEdits: () => void;
   sensitivity: number;
   onSensitivityChange: (value: number) => void;
   minArea: number;
@@ -78,6 +83,10 @@ export default function Toolbar({
   onReset,
   clickMode,
   setClickMode,
+  brushSize,
+  onBrushSizeChange,
+  hasEdits,
+  onResetEdits,
   sensitivity,
   onSensitivityChange,
   minArea,
@@ -161,8 +170,58 @@ export default function Toolbar({
             </svg>
             Deselect
           </button>
+          <button
+            onClick={() => setClickMode('brush')}
+            className={`flex-1 min-w-[4.5rem] flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+              clickMode === 'brush' ? 'bg-green-600 text-white shadow-inner' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}
+            title="Brush — paint to add gap area"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" />
+            </svg>
+            Brush
+          </button>
+          <button
+            onClick={() => setClickMode('eraser')}
+            className={`flex-1 min-w-[4.5rem] flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+              clickMode === 'eraser' ? 'bg-red-600 text-white shadow-inner' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}
+            title="Eraser — paint to remove gap area"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Zm0 0L19.5 7.125" />
+            </svg>
+            Eraser
+          </button>
         </div>
       </div>
+
+      {/* Brush Size Slider — shown only when brush or eraser is active */}
+      {(clickMode === 'brush' || clickMode === 'eraser') && (
+        <div className="px-2 py-2">
+          <div className="flex flex-col gap-1 w-full px-1">
+            <div className="flex justify-between items-center">
+              <span className="text-[11px] text-gray-400">Brush Size (px)</span>
+              <span className="text-[11px] font-mono text-gray-300">{brushSize}</span>
+            </div>
+            <input
+              type="range"
+              min={5}
+              max={200}
+              step={1}
+              value={brushSize}
+              onChange={e => onBrushSizeChange(Number(e.target.value))}
+              className="w-full h-1.5 rounded-full appearance-none bg-gray-700
+                         accent-blue-500"
+            />
+            <div className="flex justify-between text-[9px] text-gray-600">
+              <span>5</span>
+              <span>200</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Divider />
 
@@ -186,28 +245,17 @@ export default function Toolbar({
             Deselect All
           </button>
         </div>
-      </div>
-
-      <Divider />
-
-      <div className="px-1 py-2">
-        <div className="mb-3 flex items-center justify-between px-1">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
-            Appearance
-          </label>
+        {hasEdits && (
           <button
-            type="button"
-            onClick={onResetColors}
-            className="rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+            onClick={onResetEdits}
+            className="mt-2 w-full flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-3 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-amber-500"
           >
-            Reset
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 15 3 9m0 0 6-6M3 9h12a6 6 0 0 1 0 12h-3" />
+            </svg>
+            Reset Edits
           </button>
-        </div>
-        <div className="flex flex-col gap-3">
-          <ColorControlRow label="Outline" value={outlineColor} onChange={onOutlineColorChange} />
-          <ColorControlRow label="Fill" value={fillColor} onChange={onFillColorChange} />
-          <ColorControlRow label="Selected" value={selectedColor} onChange={onSelectedColorChange} />
-        </div>
+        )}
       </div>
 
       <Divider />
@@ -386,6 +434,32 @@ export default function Toolbar({
           )}
           {analyzing ? 'Detecting…' : hasResult ? 'Re-run Detection' : 'Start Detection'}
         </button>
+      )}
+
+      {(isGreyscale || hasResult) && (
+        <>
+          <Divider />
+
+          <div className="px-1 py-2">
+            <div className="mb-3 flex items-center justify-between px-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                Appearance
+              </label>
+              <button
+                type="button"
+                onClick={onResetColors}
+                className="rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-gray-400 transition-colors hover:bg-gray-800 hover:text-white"
+              >
+                Reset
+              </button>
+            </div>
+            <div className="flex flex-col gap-3">
+              <ColorControlRow label="Outline" value={outlineColor} onChange={onOutlineColorChange} />
+              <ColorControlRow label="Fill" value={fillColor} onChange={onFillColorChange} />
+              <ColorControlRow label="Selected" value={selectedColor} onChange={onSelectedColorChange} />
+            </div>
+          </div>
+        </>
       )}
 
       {/* Downloads — only available after analysis */}

@@ -9,6 +9,7 @@ const AREA_FACTOR = 0.871076; // µm² per px²
 interface Props {
   width?: number;
   result: AnalysisResult | null;
+  gaps: Gap[];
   error: string | null;
   hiddenGapIndices: Set<number>;
   onShowAllGaps: () => void;
@@ -25,8 +26,8 @@ interface Props {
   onDeleteVersion: (id: string) => void;
 }
 
-export default function ResultsPanel({ width = 320, result, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, detectionHistory, activeVersionId, onSwitchVersion, onDeleteVersion }: Props) {
-  const allHidden = result ? hiddenGapIndices.size === result.gaps.length : false;
+export default function ResultsPanel({ width = 320, result, gaps, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, detectionHistory, activeVersionId, onSwitchVersion, onDeleteVersion }: Props) {
+  const allHidden = result ? hiddenGapIndices.size === gaps.length : false;
   
   const [topSectionHeight, setTopSectionHeight] = useState(350);
   const [isDragging, setIsDragging] = useState(false);
@@ -69,27 +70,27 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
     if (activeTab === 'selected') {
       return Array.from(selectedGapIds).sort((a, b) => a - b);
     }
-    const all = result.gaps.map((_, i) => i);
+    const all = gaps.map((_, i) => i);
     if (!isSyncViewport) return all;
     return all.filter(i => visibleGapIdsInViewport.has(i));
-  }, [result, isSyncViewport, visibleGapIdsInViewport, activeTab, selectedGapIds]);
+  }, [result, gaps, isSyncViewport, visibleGapIdsInViewport, activeTab, selectedGapIds]);
 
   const totalDisplayedAreaUm = useMemo(() => {
     if (!result) return 0;
-    return displayIndices.reduce((sum, i) => sum + result.gaps[i].area_px, 0) * AREA_FACTOR;
-  }, [displayIndices, result]);
+    return displayIndices.reduce((sum, i) => sum + gaps[i].area_px, 0) * AREA_FACTOR;
+  }, [displayIndices, result, gaps]);
 
   const selectedAreaUm = useMemo(() => {
     if (!result) return 0;
     let sum = 0;
-    for (const i of selectedGapIds) sum += result.gaps[i].area_px;
+    for (const i of selectedGapIds) sum += gaps[i].area_px;
     return sum * AREA_FACTOR;
-  }, [selectedGapIds, result]);
+  }, [selectedGapIds, result, gaps]);
 
   const totalAbsoluteAreaUm = useMemo(() => {
     if (!result) return 0;
-    return result.gaps.reduce((sum, g) => sum + g.area_px, 0) * AREA_FACTOR;
-  }, [result]);
+    return gaps.reduce((sum, g) => sum + g.area_px, 0) * AREA_FACTOR;
+  }, [result, gaps]);
 
   return (
     <aside 
@@ -159,7 +160,7 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
                   <div className="flex justify-between text-sm">
                     <dt className="text-gray-600">Total Gaps</dt>
                     <dd className="font-medium text-gray-900">
-                      {result.gap_count.toLocaleString()}
+                      {gaps.length.toLocaleString()}
                     </dd>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -234,9 +235,9 @@ export default function ResultsPanel({ width = 320, result, error, hiddenGapIndi
             </div>
 
             {/* Virtualized gap list — takes all remaining height */}
-            {result.gaps.length > 0 && (
+            {gaps.length > 0 && (
               <GapList
-                gaps={result.gaps}
+                gaps={gaps}
                 hiddenGapIndices={hiddenGapIndices}
                 onToggleGap={onToggleGap}
                 selectedGapIds={selectedGapIds}

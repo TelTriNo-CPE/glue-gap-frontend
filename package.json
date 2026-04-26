@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.24",
+    "@turf/turf": "^7.3.5",
     "axios": "^1.15.0",
     "openseadragon": "^6.0.2",
     "react": "^19.0.0",

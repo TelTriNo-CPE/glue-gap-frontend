@@ -33,3 +33,5 @@ export interface DetectionVersion {
   params: DetectionParams;
   result: AnalysisResult;
 }
+
+export type ClickMode = 'select' | 'deselect' | 'pan' | 'brush' | 'eraser';

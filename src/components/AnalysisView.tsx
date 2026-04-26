@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import type { AnalysisResult, DetectionVersion } from '../types';
+import type { AnalysisResult, ClickMode, DetectionVersion, Gap } from '../types';
 import Toolbar from './Toolbar';
 import OsdViewer from './OsdViewer';
 import ResultsPanel from './ResultsPanel';
@@ -42,7 +42,9 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [hideUnselected,   setHideUnselected]    = useState(false);
   const [isOutlineOnly,    setIsOutlineOnly]     = useState(false);
   const [hiddenGapIndices, setHiddenGapIndices]  = useState<Set<number>>(new Set());
-  const [clickMode,        setClickMode]         = useState<'select' | 'deselect' | 'pan'>('select');
+  const [clickMode,        setClickMode]         = useState<ClickMode>('select');
+  const [brushSize,        setBrushSize]         = useState(20);
+  const [editedGaps,       setEditedGaps]        = useState<Gap[] | null>(null);
   const [isSyncViewport,   setIsSyncViewport]    = useState(false);
   const [visibleGapIdsInViewport, setVisibleGapIdsInViewport] = useState<Set<number>>(new Set());
   const [sensitivity,  setSensitivity]  = useState(50);
@@ -52,6 +54,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [outlineColor, setOutlineColor] = useState(DEFAULT_OUTLINE_COLOR);
   const [fillColor, setFillColor] = useState(DEFAULT_FILL_COLOR);
   const [selectedColor, setSelectedColor] = useState(DEFAULT_SELECTED_COLOR);
+
+  const displayGaps = editedGaps ?? result?.gaps ?? [];
 
   const [isDesktop, setIsDesktop] = useState(getIsDesktop);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(getIsDesktop);
@@ -232,8 +236,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   }
 
   function selectAllGaps() {
-    if (!result) return;
-    setSelectedGapIds(new Set(result.gaps.map((_, i) => i)));
+    if (displayGaps.length === 0) return;
+    setSelectedGapIds(new Set(displayGaps.map((_, i) => i)));
     setHiddenGapIndices(new Set());
   }
 
@@ -241,8 +245,21 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     setSelectedGapIds(new Set());
   }
 
+  function handleGapsModified(newGaps: Gap[]) {
+    setEditedGaps(newGaps);
+    setSelectedGapIds(new Set());
+    setHiddenGapIndices(new Set());
+  }
+
+  function handleResetEdits() {
+    setEditedGaps(null);
+    setSelectedGapIds(new Set());
+    setHiddenGapIndices(new Set());
+  }
+
   function switchVersion(id: string) {
     setActiveVersionId(id);
+    setEditedGaps(null);
     setSelectedGapIds(new Set());
     setHiddenGapIndices(new Set());
     setVisibleGapIdsInViewport(new Set());
@@ -301,6 +318,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       };
       setDetectionHistory(prev => [...prev, newVersion]);
       setActiveVersionId(newVersion.id);
+      setEditedGaps(null);
       setSelectedGapIds(new Set());
       setHiddenGapIndices(new Set());
       setVisibleGapIdsInViewport(new Set());
@@ -424,6 +442,10 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             onReset={onReset}
             clickMode={clickMode}
             setClickMode={setClickMode}
+            brushSize={brushSize}
+            onBrushSizeChange={setBrushSize}
+            hasEdits={editedGaps !== null}
+            onResetEdits={handleResetEdits}
             sensitivity={sensitivity}
             onSensitivityChange={setSensitivity}
             minArea={minArea}
@@ -531,7 +553,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
           <div className="flex-1 relative h-full min-w-0 min-h-0">
             <OsdViewer
               stem={stem}
-              gaps={result?.gaps ?? []}
+              gaps={displayGaps}
               hiddenGapIndices={hiddenGapIndices}
               hideUnselected={hideUnselected}
               isOutlineOnly={isOutlineOnly}
@@ -546,6 +568,9 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
               outlineColor={outlineColor}
               fillColor={fillColor}
               selectedColor={selectedColor}
+              brushSize={brushSize}
+              onGapsModified={handleGapsModified}
+              imageSize={result?.image_size ?? null}
             />
           </div>
         </div>
@@ -572,6 +597,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             <ResultsPanel
               width={isDesktop ? rightWidth : mobileRightPanelWidth}
               result={result}
+              gaps={displayGaps}
               error={analyzeError}
               hiddenGapIndices={hiddenGapIndices}
               onToggleGap={toggleGap}
