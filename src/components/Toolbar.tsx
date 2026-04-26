@@ -232,7 +232,18 @@ export default function Toolbar({
           <div className="flex flex-col gap-1 w-full px-1">
             <div className="flex justify-between items-center">
               <span className="text-[11px] text-gray-400">Brush Size (px)</span>
-              <span className="text-[11px] font-mono text-gray-300">{brushSize}</span>
+              <input
+                type="number"
+                min={5}
+                max={200}
+                value={brushSize}
+                onChange={e => {
+                  const v = Number(e.target.value);
+                  if (v >= 5 && v <= 200) onBrushSizeChange(v);
+                }}
+                className="w-16 text-right text-[11px] font-mono bg-gray-800 border border-gray-700
+                           text-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500"
+              />
             </div>
             <input
               type="range"
@@ -343,7 +354,20 @@ export default function Toolbar({
           <div className="flex flex-col gap-1 w-full px-1">
             <div className="flex justify-between items-center">
               <span className="text-[11px] text-gray-400">Sensitivity</span>
-              <span className="text-[11px] font-mono text-gray-300">{sensitivity}</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                value={sensitivity}
+                onChange={e => {
+                  const v = Number(e.target.value);
+                  if (v >= 0 && v <= 100) onSensitivityChange(v);
+                }}
+                disabled={analyzing}
+                className="w-16 text-right text-[11px] font-mono bg-gray-800 border border-gray-700
+                           text-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:border-blue-500
+                           disabled:opacity-40"
+              />
             </div>
             <input
               type="range"
