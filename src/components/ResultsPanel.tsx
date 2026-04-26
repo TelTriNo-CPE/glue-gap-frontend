@@ -68,7 +68,8 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
   const displayIndices = useMemo(() => {
     if (!result) return [];
     if (activeTab === 'selected') {
-      return Array.from(selectedGapIds).sort((a, b) => a - b);
+      // Filter out stale indices that exceed the current gaps array length
+      return Array.from(selectedGapIds).filter(i => i < gaps.length).sort((a, b) => a - b);
     }
     const all = gaps.map((_, i) => i);
     if (!isSyncViewport) return all;
@@ -77,13 +78,13 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
 
   const totalDisplayedAreaUm = useMemo(() => {
     if (!result) return 0;
-    return displayIndices.reduce((sum, i) => sum + gaps[i].area_px, 0) * AREA_FACTOR;
+    return displayIndices.reduce((sum, i) => sum + (gaps[i]?.area_px ?? 0), 0) * AREA_FACTOR;
   }, [displayIndices, result, gaps]);
 
   const selectedAreaUm = useMemo(() => {
     if (!result) return 0;
     let sum = 0;
-    for (const i of selectedGapIds) sum += gaps[i].area_px;
+    for (const i of selectedGapIds) sum += gaps[i]?.area_px ?? 0;
     return sum * AREA_FACTOR;
   }, [selectedGapIds, result, gaps]);
 
@@ -368,6 +369,7 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
           {virtualizer.getVirtualItems().map(vRow => {
             const originalIndex = displayIndices[vRow.index];
             const gap = gaps[originalIndex];
+            if (!gap) return null;
             const isHidden = hiddenGapIndices.has(originalIndex);
 
             const isSelected = selectedGapIds.has(originalIndex);

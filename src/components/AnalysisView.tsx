@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { saveAnalysisGaps } from '../api';
-import type { AnalysisResult, ClickMode, DetectionVersion, Gap, RadiusStats } from '../types';
+import type { AnalysisResult, ClickMode, DetectionVersion, Gap } from '../types';
 import useGapHistory from '../hooks/useGapHistory';
 import Toolbar from './Toolbar';
 import OsdViewer from './OsdViewer';
@@ -14,6 +14,7 @@ interface Props {
 
 const ANALYZE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const TOAST_DURATION_MS  = 10_000;
+const INFO_TOAST_DURATION_MS = 3_000;
 const DESKTOP_BREAKPOINT = 1024;
 const LEFT_PANEL_WIDTH = 256;
 const RIGHT_PANEL_WIDTH = 320;
@@ -29,7 +30,7 @@ function getIsDesktop() {
 
 export default function AnalysisView({ fileKey, onReset }: Props) {
   const [selectedGapIds, setSelectedGapIds] = useState<Set<number>>(new Set());
-  const stem = fileKey.replace(/\.[^.]+$/, '');
+  const fileStem = fileKey.replace(/\.[^.]+$/, '');
   
   const viewerContainerRef = useRef<HTMLDivElement>(null);
 
@@ -42,6 +43,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [parsing,          setParsing]           = useState(false);
   const [analyzeError,     setAnalyzeError]      = useState<string | null>(null);
   const [toast,            setToast]             = useState<string | null>(null);
+  const [infoToast,        setInfoToast]         = useState<string | null>(null);
   const [grayscale,        setGrayscale]         = useState(false);
   const [hideUnselected,   setHideUnselected]    = useState(false);
   const [isOutlineOnly,    setIsOutlineOnly]     = useState(false);
@@ -70,6 +72,28 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   } = useGapHistory(result?.gaps ?? null, EDIT_HISTORY_LIMIT);
 
   const displayGaps = present ?? result?.gaps ?? EMPTY_GAPS;
+  const analysisStem = result?.stem ?? fileStem;
+
+  // Safety net: clamp stale selection/hidden indices whenever displayGaps shrinks
+  useEffect(() => {
+    const count = displayGaps.length;
+    setSelectedGapIds(prev => {
+      let needsClamp = false;
+      for (const id of prev) { if (id >= count) { needsClamp = true; break; } }
+      if (!needsClamp) return prev;
+      const next = new Set<number>();
+      for (const id of prev) { if (id < count) next.add(id); }
+      return next;
+    });
+    setHiddenGapIndices(prev => {
+      let needsClamp = false;
+      for (const id of prev) { if (id >= count) { needsClamp = true; break; } }
+      if (!needsClamp) return prev;
+      const next = new Set<number>();
+      for (const id of prev) { if (id < count) next.add(id); }
+      return next;
+    });
+  }, [displayGaps.length]);
 
   const [isDesktop, setIsDesktop] = useState(getIsDesktop);
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(getIsDesktop);
@@ -174,6 +198,13 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // Auto-dismiss info toast after INFO_TOAST_DURATION_MS
+  useEffect(() => {
+    if (!infoToast) return;
+    const t = setTimeout(() => setInfoToast(null), INFO_TOAST_DURATION_MS);
+    return () => clearTimeout(t);
+  }, [infoToast]);
+
   function handleGreyscale() {
     setGrayscale(prev => !prev);
   }
@@ -265,22 +296,74 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   }
 
   const handleGapsModified = useCallback((newGaps: Gap[]) => {
-    if (commitGapEdits(newGaps)) {
-      clearGapInteractionState();
+    const oldCount = displayGaps.length;
+    if (!commitGapEdits(newGaps)) return;
+
+    const newCount = newGaps.length;
+
+    // Show contextual info toast when gap count changes
+    if (newCount < oldCount) {
+      const diff = oldCount - newCount;
+      if (clickMode === 'brush') {
+        setInfoToast(diff === 1 ? 'Gaps merged' : `${diff + 1} gaps merged`);
+      } else {
+        setInfoToast(diff === 1 ? 'Gap deleted' : `${diff} gaps deleted`);
+      }
+    } else if (newCount > oldCount) {
+      setInfoToast('Gap split into multiple pieces');
     }
-  }, [clearGapInteractionState, commitGapEdits]);
+
+    // Clamp selection & hidden to valid indices instead of clearing
+    setSelectedGapIds(prev => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (id < newCount) next.add(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+    setHiddenGapIndices(prev => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (id < newCount) next.add(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [commitGapEdits, displayGaps.length, clickMode]);
+
+  const clampInteractionState = useCallback((gapCount: number) => {
+    setSelectedGapIds(prev => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (id < gapCount) next.add(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+    setHiddenGapIndices(prev => {
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (id < gapCount) next.add(id);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, []);
 
   const handleUndo = useCallback(() => {
     if (undo()) {
-      clearGapInteractionState();
+      // After undo, the present changes — clamp to new length.
+      // We read from the hook's returned `present` on next render,
+      // but we need the count now. The undo() call already updated
+      // the internal state, so `present` will update on next render.
+      // Use displayGaps length as a safe fallback; the clamp effect
+      // below will catch any remaining stale indices.
+      clampInteractionState(displayGaps.length);
     }
-  }, [clearGapInteractionState, undo]);
+  }, [clampInteractionState, displayGaps.length, undo]);
 
   const handleRedo = useCallback(() => {
     if (redo()) {
-      clearGapInteractionState();
+      clampInteractionState(displayGaps.length);
     }
-  }, [clearGapInteractionState, redo]);
+  }, [clampInteractionState, displayGaps.length, redo]);
 
   const handleResetEdits = useCallback(() => {
     resetGapEdits();
@@ -325,19 +408,14 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     setIsSaving(true);
 
     try {
-      await saveAnalysisGaps(fileKey, present);
+      const updatedResult = await saveAnalysisGaps(analysisStem, present);
 
       setDetectionHistory(prev =>
         prev.map(version =>
           version.id === activeVersionId
             ? {
                 ...version,
-                result: {
-                  ...version.result,
-                  gaps: present,
-                  gap_count: present.length,
-                  radius_stats: calculateRadiusStats(present),
-                },
+                result: updatedResult,
               }
             : version,
         ),
@@ -483,6 +561,21 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         </div>
       )}
 
+      {/* Info toast — bottom-centre, auto-dismisses */}
+      {infoToast && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50
+                        bg-gray-800 border border-gray-600 text-gray-100
+                        rounded-full shadow-xl px-4 py-2 text-xs font-medium
+                        flex items-center gap-2 animate-[fadeIn_0.15s_ease-out]">
+          <svg className="w-4 h-4 shrink-0 text-blue-400" fill="none"
+               viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z" />
+          </svg>
+          {infoToast}
+        </div>
+      )}
+
       {/* Full-screen processing overlay */}
       {overlayVisible && (
         <div className="absolute inset-0 z-40 flex flex-col items-center justify-center
@@ -522,7 +615,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         >
           <Toolbar
             width={isDesktop ? leftWidth : mobileLeftPanelWidth}
-            stem={stem}
+            stem={analysisStem}
             fileKey={fileKey}
             isGreyscale={grayscale}
             hideUnselected={hideUnselected}
@@ -652,7 +745,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
 
           <div className="flex-1 relative h-full min-w-0 min-h-0">
             <OsdViewer
-              stem={stem}
+              stem={analysisStem}
               gaps={displayGaps}
               hiddenGapIndices={hiddenGapIndices}
               hideUnselected={hideUnselected}
@@ -729,31 +822,6 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
 }
 
 // ─── Error message extraction ────────────────────────────────────────────────
-
-function calculateRadiusStats(gaps: Gap[]): RadiusStats | null {
-  if (gaps.length === 0) {
-    return null;
-  }
-
-  const radii = gaps
-    .map((gap) => gap.equiv_radius_px)
-    .sort((left, right) => left - right);
-  const sum = radii.reduce((total, radius) => total + radius, 0);
-  const mean = sum / radii.length;
-  const middleIndex = Math.floor(radii.length / 2);
-  const median = radii.length % 2 === 0
-    ? (radii[middleIndex - 1] + radii[middleIndex]) / 2
-    : radii[middleIndex];
-  const variance = radii.reduce((total, radius) => total + (radius - mean) ** 2, 0) / radii.length;
-
-  return {
-    min: radii[0],
-    max: radii[radii.length - 1],
-    mean,
-    median,
-    std: Math.sqrt(variance),
-  };
-}
 
 function isEditableTarget(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) {
