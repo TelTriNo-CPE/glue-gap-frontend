@@ -34,4 +34,4 @@ export interface DetectionVersion {
   result: AnalysisResult;
 }
 
-export type ClickMode = 'select' | 'deselect' | 'pan' | 'brush' | 'eraser';
+export type ClickMode = 'select' | 'deselect' | 'pan' | 'brush' | 'eraser' | 'split';

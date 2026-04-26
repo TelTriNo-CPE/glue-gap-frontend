@@ -194,6 +194,18 @@ export default function Toolbar({
             </svg>
             Eraser
           </button>
+          <button
+            onClick={() => setClickMode('split')}
+            className={`flex-1 min-w-[4.5rem] flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+              clickMode === 'split' ? 'bg-amber-500 text-white shadow-inner' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}
+            title="Split — draw a line to cut a gap into separate pieces"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="m7.848 8.25 1.536.887M7.848 8.25a3 3 0 1 1-5.196-3 3 3 0 0 1 5.196 3Zm1.536.887a2.165 2.165 0 0 1 1.083 1.839c.005.351.054.695.14 1.024M9.384 9.137l2.077 1.199M7.848 15.75l1.536-.887m-1.536.887a3 3 0 1 1-5.196 3 3 3 0 0 1 5.196-3Zm1.536-.887a2.165 2.165 0 0 0 1.083-1.838c.005-.352.054-.695.14-1.025m-1.223 2.863 2.077-1.199m0-3.328a4.323 4.323 0 0 1 2.068-1.379l5.325-1.628a4.5 4.5 0 0 1 2.48-.044l.803.215m-7.676 2.836a4.323 4.323 0 0 0 2.068 1.379l5.325 1.628a4.5 4.5 0 0 0 2.48.044l.803-.215" />
+            </svg>
+            Split
+          </button>
         </div>
       </div>
 

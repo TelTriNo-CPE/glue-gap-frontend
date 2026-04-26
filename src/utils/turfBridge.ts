@@ -212,6 +212,93 @@ export function applyEraser(
   return result;
 }
 
+// ─── Split operation ────────────────────────────────────────────────────────
+
+/**
+ * Create a thin 4-point rectangle polygon around a line segment in pixel space.
+ * The half-width controls how thick the "cut" sliver is.
+ */
+function createSplitterPolygon(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  halfWidth = 0.5,
+): Feature<Polygon> {
+  const dx = p2.x - p1.x;
+  const dy = p2.y - p1.y;
+  const len = Math.hypot(dx, dy);
+  if (len === 0) return turf.polygon([[[p1.x, p1.y], [p1.x, p1.y], [p1.x, p1.y], [p1.x, p1.y]]]);
+
+  // Perpendicular unit vector
+  const nx = -dy / len;
+  const ny = dx / len;
+  const ox = nx * halfWidth;
+  const oy = ny * halfWidth;
+
+  const ring: Position[] = [
+    [p1.x + ox, p1.y + oy],
+    [p2.x + ox, p2.y + oy],
+    [p2.x - ox, p2.y - oy],
+    [p1.x - ox, p1.y - oy],
+    [p1.x + ox, p1.y + oy], // close ring
+  ];
+
+  return turf.polygon([ring]);
+}
+
+/**
+ * Split gaps along a straight line drawn from p1 to p2 (in image pixel coordinates).
+ * Any gap intersected by the line is subtracted by a thin sliver polygon.
+ * MultiPolygon results are split into separate Gap objects.
+ */
+export function applySplit(
+  gaps: Gap[],
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  imgW: number,
+  imgH: number,
+  minArea = 4,
+): Gap[] {
+  const splitter = createSplitterPolygon(p1, p2);
+  const result: Gap[] = [];
+
+  for (let i = 0; i < gaps.length; i++) {
+    const turfGap = gapToTurfPolygon(gaps[i], imgW, imgH);
+
+    let intersects = false;
+    try {
+      intersects = turf.booleanIntersects(turfGap, splitter);
+    } catch {
+      result.push(gaps[i]);
+      continue;
+    }
+
+    if (!intersects) {
+      result.push(gaps[i]);
+      continue;
+    }
+
+    try {
+      const diff = turf.difference(turf.featureCollection([turfGap, splitter]));
+      if (!diff) {
+        // Fully consumed by the sliver (unlikely but possible for tiny gaps)
+        continue;
+      }
+
+      const extracted = extractPolygons(diff as Feature<Polygon | MultiPolygon>, imgW, imgH);
+      for (const gap of extracted) {
+        if (gap.area_px >= minArea) {
+          result.push(gap);
+        }
+      }
+    } catch {
+      // If difference fails, keep gap unchanged
+      result.push(gaps[i]);
+    }
+  }
+
+  return result;
+}
+
 /**
  * Extract individual Gap objects from a Polygon or MultiPolygon feature.
  */

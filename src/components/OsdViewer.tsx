@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import OpenSeadragon from 'openseadragon';
 import { getDziUrl } from '../api';
 import type { Gap, ClickMode } from '../types';
-import { applyBrush, applyEraser } from '../utils/turfBridge';
+import { applyBrush, applyEraser, applySplit } from '../utils/turfBridge';
 
 interface Props {
   stem: string;
@@ -441,6 +441,14 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       const bCanvas = brushCursorCanvasRef.current;
       if (!bCanvas) return;
       const mode = clickModeRef.current;
+      if (mode === 'split') {
+        // Don't clear during a split drag — canvas-drag draws the preview line
+        if (!isPaintingRef.current) {
+          const ctx = bCanvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+        }
+        return;
+      }
       if (mode !== 'brush' && mode !== 'eraser') {
         const ctx = bCanvas.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
@@ -565,8 +573,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
       const currentClickMode = clickModeRef.current;
       if (currentClickMode === 'pan') return;
-      // Brush/eraser handled by canvas-press/drag/release
-      if (currentClickMode === 'brush' || currentClickMode === 'eraser') {
+      // Brush/eraser/split handled by canvas-press/drag/release
+      if (currentClickMode === 'brush' || currentClickMode === 'eraser' || currentClickMode === 'split') {
         event.preventDefaultAction = true;
         return;
       }
@@ -634,6 +642,13 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         return;
       }
 
+      if (mode === 'split') {
+        isPaintingRef.current = true;
+        lastPaintImgRef.current = { x: imgPoint.x, y: imgPoint.y };
+        event.preventDefaultAction = true;
+        return;
+      }
+
       marqueeStateRef.current = {
         isDragging: true,
         startImg: { x: imgPoint.x, y: imgPoint.y },
@@ -646,6 +661,56 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
     viewer.addHandler('canvas-drag', function(event: any) {
       const mode = clickModeRef.current;
+
+      // Handle split drag — draw preview line
+      if (mode === 'split' && isPaintingRef.current) {
+        const v = viewerRef.current;
+        if (!v || !v.isOpen()) return;
+
+        const viewportPoint = v.viewport.pointFromPixel(event.position, true);
+        const imgPoint = v.viewport.viewportToImageCoordinates(viewportPoint);
+        const startPt = lastPaintImgRef.current;
+        if (!startPt) return;
+
+        // Draw the split preview line on the brush cursor canvas
+        const bCanvas = brushCursorCanvasRef.current;
+        if (bCanvas) {
+          const osdCanvas = v.canvas as HTMLElement;
+          const w = osdCanvas.clientWidth;
+          const h = osdCanvas.clientHeight;
+          if (bCanvas.width !== w || bCanvas.height !== h) {
+            bCanvas.width = w;
+            bCanvas.height = h;
+          }
+
+          const ctx = bCanvas.getContext('2d');
+          if (ctx) {
+            ctx.clearRect(0, 0, w, h);
+
+            // Convert start and current image points to screen pixels
+            const startVp = v.viewport.imageToViewportCoordinates(
+              new OpenSeadragon.Point(startPt.x, startPt.y),
+            );
+            const endVp = v.viewport.imageToViewportCoordinates(
+              new OpenSeadragon.Point(imgPoint.x, imgPoint.y),
+            );
+            const startPx = v.viewport.pixelFromPoint(startVp, true);
+            const endPx = v.viewport.pixelFromPoint(endVp, true);
+
+            ctx.beginPath();
+            ctx.moveTo(startPx.x, startPx.y);
+            ctx.lineTo(endPx.x, endPx.y);
+            ctx.strokeStyle = 'rgba(245, 158, 11, 0.9)';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([6, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+          }
+        }
+
+        event.preventDefaultAction = true;
+        return;
+      }
 
       // Handle brush/eraser drag painting
       if ((mode === 'brush' || mode === 'eraser') && isPaintingRef.current) {
@@ -742,9 +807,47 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       event.preventDefaultAction = true;
     });
 
-    viewer.addHandler('canvas-release', function() {
+    viewer.addHandler('canvas-release', function(event: any) {
       // End brush/eraser painting
       if (isPaintingRef.current) {
+        const mode = clickModeRef.current;
+
+        // Handle split release — apply the cut
+        if (mode === 'split' && lastPaintImgRef.current) {
+          const v = viewerRef.current;
+          if (v && v.isOpen()) {
+            const viewportPoint = v.viewport.pointFromPixel(event.position, true);
+            const endImgPoint = v.viewport.viewportToImageCoordinates(viewportPoint);
+            const startPt = lastPaintImgRef.current;
+
+            // Only apply if the user dragged a meaningful distance
+            const dist = Math.hypot(endImgPoint.x - startPt.x, endImgPoint.y - startPt.y);
+            if (dist > 1) {
+              const size = imageSizeRef.current;
+              if (size) {
+                const currentGaps = gapsRef.current;
+                const newGaps = applySplit(
+                  currentGaps,
+                  startPt,
+                  { x: endImgPoint.x, y: endImgPoint.y },
+                  size.width,
+                  size.height,
+                );
+                gapsRef.current = newGaps;
+                onGapsModifiedRef.current?.(newGaps);
+                scheduleFullRedraw();
+              }
+            }
+          }
+
+          // Clear the split preview line
+          const bCanvas = brushCursorCanvasRef.current;
+          if (bCanvas) {
+            const ctx = bCanvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+          }
+        }
+
         isPaintingRef.current = false;
         lastPaintImgRef.current = null;
         return;
@@ -915,6 +1018,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       canvas.style.cursor = 'grab';
     } else if (clickMode === 'brush' || clickMode === 'eraser') {
       canvas.style.cursor = 'none';
+    } else if (clickMode === 'split') {
+      canvas.style.cursor = 'crosshair';
     } else {
       canvas.style.cursor = 'crosshair';
     }
