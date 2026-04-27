@@ -523,10 +523,24 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     osdCanvasEl.addEventListener('mousemove', drawBrushCursor);
     osdCanvasEl.addEventListener('mouseleave', clearBrushCursor);
 
+    // ── Image size helper ───────────────────────────────────────────────
+    // Returns the image dimensions from the backend result when available,
+    // or falls back to the OSD tiled-image content size.  This allows
+    // manual tools (brush, eraser, magic wand) to work before auto-detection
+    // has been run and result?.image_size is still null.
+    function getEffectiveSize(): { width: number; height: number } | null {
+      if (imageSizeRef.current) return imageSizeRef.current;
+      const tImg = viewer.world.getItemAt(0);
+      if (!tImg) return null;
+      const s = tImg.getContentSize();
+      if (!s || !s.x || !s.y) return null;
+      return { width: s.x, height: s.y };
+    }
+
     // ── Paint stamp helper ──────────────────────────────────────────────
     function applyPaintStamp(imgX: number, imgY: number, mode: 'brush' | 'eraser') {
       const currentGaps = gapsRef.current;
-      const size = imageSizeRef.current;
+      const size = getEffectiveSize();
       if (!size) return;
       const brushRadius = brushSizeRef.current / 2;
 
@@ -590,7 +604,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       if (currentClickMode === 'magic-wand') {
         event.preventDefaultAction = true;
         const v = viewerRef.current;
-        const size = imageSizeRef.current;
+        const size = getEffectiveSize();
         if (!size) return;
 
         const polygon = executeMagicWand(v, event.position, wandToleranceRef.current);
