@@ -38,6 +38,8 @@ interface Props {
   onToggleFullscreen: () => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
+  onSelectManual: () => void;
+  onClearManual: () => void;
   outlineColor: string;
   fillColor: string;
   selectedColor: string;
@@ -116,6 +118,8 @@ export default function Toolbar({
   onToggleFullscreen,
   onSelectAll,
   onDeselectAll,
+  onSelectManual,
+  onClearManual,
   outlineColor,
   fillColor,
   selectedColor,
@@ -342,6 +346,24 @@ export default function Toolbar({
             className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-xs font-semibold text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Deselect All
+          </button>
+        </div>
+        <div className="mt-2 flex flex-row gap-2 w-full">
+          <button
+            onClick={onSelectManual}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-indigo-700/50 bg-indigo-900/30 px-3 py-2 text-xs font-semibold text-indigo-200 transition-colors hover:bg-indigo-900/50 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Select all manually created or modified gaps"
+          >
+            <SelectManualIcon />
+            Select Manual
+          </button>
+          <button
+            onClick={onClearManual}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-red-900/50 bg-red-900/20 px-3 py-2 text-xs font-semibold text-red-300 transition-colors hover:bg-red-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+            title="Clear only manual gaps (preserves auto-detected gaps)"
+          >
+            <TrashIcon className="w-3.5 h-3.5" />
+            Clear Manual
           </button>
         </div>
         <div className="mt-2 flex items-center gap-2">
@@ -707,6 +729,22 @@ function SaveIcon() {
     <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 3.75H5.25A2.25 2.25 0 0 0 3 6v12a2.25 2.25 0 0 0 2.25 2.25h13.5A2.25 2.25 0 0 0 21 18V7.5l-3.75-3.75Z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 3.75v5.25h6V3.75m-5.25 12h6.75" />
+    </svg>
+  );
+}
+
+function SelectManualIcon() {
+  return (
+    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.05 4.575a1.575 1.575 0 1 0-3.15 0v12.272l-1.424-1.42a1.575 1.575 0 0 0-2.227 2.227l3.011 3.012a6.75 6.75 0 0 0 9.992-6.943V6.15a1.575 1.575 0 1 0-3.15 0v5.625h-1.05V4.575Z" />
+    </svg>
+  );
+}
+
+function TrashIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.342 10.822m-5.512 0L8.54 9m4.836-9.178a.75.75 0 0 1 .197.89l-.11.228m-2.203-1.118a.75.75 0 0 0-.197.89l.11.228M3.75 5.25h16.5m-14.25 0v13.5A2.25 2.25 0 0 0 8.25 21h7.5a2.25 2.25 0 0 0 2.25-2.25V5.25m-12 0V3.75A2.25 2.25 0 0 1 10.5 1.5h3a2.25 2.25 0 0 1 2.25 2.25V5.25" />
     </svg>
   );
 }

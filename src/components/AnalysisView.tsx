@@ -298,6 +298,32 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     setHiddenGapIndices(new Set());
   }
 
+  function handleSelectManual() {
+    const manualIds = new Set<number>();
+    displayGaps.forEach((gap, i) => {
+      if (gap.source === 'manual') manualIds.add(i);
+    });
+    if (manualIds.size === 0) {
+      setInfoToast('No manual gaps found');
+      return;
+    }
+    setSelectedGapIds(manualIds);
+    setHiddenGapIndices(new Set());
+    setInfoToast(`Selected ${manualIds.size} manual gaps`);
+  }
+
+  function handleClearManual() {
+    const filteredGaps = displayGaps.filter(gap => gap.source !== 'manual');
+    const removedCount = displayGaps.length - filteredGaps.length;
+    if (removedCount === 0) {
+      setInfoToast('No manual gaps to clear');
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to clear ${removedCount} manual gaps?`)) return;
+    handleGapsModified(filteredGaps);
+    setInfoToast(`Cleared ${removedCount} manual gaps`);
+  }
+
   function deselectAllGaps() {
     setSelectedGapIds(new Set());
   }
@@ -465,13 +491,13 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     pendingMergeRef.current = null;
 
     commitGapEdits(pending.existingGaps); // becomes past[0] after base reset
-    commitGapEdits(pending.mergedGaps);   // becomes present
+    handleGapsModified(pending.mergedGaps);   // becomes present
 
     const n = pending.existingGaps.length;
     setInfoToast(
       `Auto-detection merged with ${n} existing gap${n === 1 ? '' : 's'} — press Ctrl+Z to undo`,
     );
-  }, [activeVersionId, commitGapEdits]);
+  }, [activeVersionId, commitGapEdits, handleGapsModified]);
 
   async function handleSaveEdits() {
     if (!present || isSaving) return;
@@ -567,10 +593,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
 
       const r: AnalysisResult = JSON.parse(raw);
 
-      // Capture the current gaps BEFORE we change any state.
-      // displayGaps reflects manual edits that may have been made before
-      // auto-detection was run.
-      const existingGaps = displayGaps;
+      // currentGaps evaluates to unsaved edits (present) or baseline (result.gaps) or []
+      const currentGaps = displayGaps;
 
       const newVersion: DetectionVersion = {
         id: crypto.randomUUID(),
@@ -584,21 +608,17 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       setDetectionHistory(prev => [...prev, newVersion]);
       setActiveVersionId(newVersion.id);
 
-      if (existingGaps.length > 0) {
-        // There are pre-existing (manual) gaps.  Schedule a merge commit to run
-        // AFTER useGapHistory resets its stack (see the flush useEffect below).
-        const mergedGaps = mergeIncomingGaps(
-          existingGaps,
-          r.gaps,
-          r.image_size.width,
-          r.image_size.height,
-        );
-        pendingMergeRef.current = { existingGaps, mergedGaps };
-        // Do NOT call resetGapEdits() here — the flush effect handles the stack.
-      } else {
-        // No pre-existing gaps: standard flow — history resets to auto results.
-        resetGapEdits();
-      }
+      const mergedGaps = mergeIncomingGaps(
+        currentGaps,
+        r.gaps,
+        r.image_size.width,
+        r.image_size.height,
+      );
+
+      // Schedule a merge commit to run AFTER useGapHistory resets its stack.
+      // This treats the auto-detection as an "edit action", adding it to the Undo stack
+      // so the user can hit Ctrl+Z if the AI result is bad.
+      pendingMergeRef.current = { existingGaps: currentGaps, mergedGaps };
 
       clearGapInteractionState();
       setVisibleGapIdsInViewport(new Set());
@@ -757,6 +777,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             onToggleFullscreen={toggleFullscreen}
             onSelectAll={selectAllGaps}
             onDeselectAll={deselectAllGaps}
+            onSelectManual={handleSelectManual}
+            onClearManual={handleClearManual}
             outlineColor={outlineColor}
             fillColor={fillColor}
             selectedColor={selectedColor}

@@ -33,7 +33,7 @@ export function gapToTurfPolygon(gap: Gap, imgW: number, imgH: number): Feature<
  * Convert a turf Polygon feature back into a Gap object.
  * Uses shoelace formula for area since turf.area assumes geographic coords.
  */
-export function turfPolygonToGap(feature: Feature<Polygon>, imgW: number, imgH: number): Gap {
+export function turfPolygonToGap(feature: Feature<Polygon>, imgW: number, imgH: number, source?: 'auto' | 'manual'): Gap {
   const ring = feature.geometry.coordinates[0];
 
   const area = shoelaceArea(ring);
@@ -60,6 +60,7 @@ export function turfPolygonToGap(feature: Feature<Polygon>, imgW: number, imgH: 
     equiv_radius_px: radius,
     centroid_norm: [cx / imgW, cy / imgH],
     coordinates,
+    source,
   };
 }
 
@@ -123,7 +124,7 @@ export function applyBrush(
 
   if (overlappingIndices.length === 0) {
     // No overlapping gaps — create a new gap from the circle
-    const newGap = turfPolygonToGap(circle, imgW, imgH);
+    const newGap = turfPolygonToGap(circle, imgW, imgH, 'manual');
     return [...gaps, newGap];
   }
 
@@ -151,7 +152,7 @@ export function applyBrush(
   }
 
   // Extract polygons from merged result
-  const extracted = extractPolygons(merged, imgW, imgH);
+  const extracted = extractPolygons(merged, imgW, imgH, 'manual');
   result.push(...extracted);
 
   return result;
@@ -204,7 +205,7 @@ export function applyEraser(
         continue;
       }
 
-      const extracted = extractPolygons(diff as Feature<Polygon | MultiPolygon>, imgW, imgH);
+      const extracted = extractPolygons(diff as Feature<Polygon | MultiPolygon>, imgW, imgH, 'manual');
       // Filter out tiny fragments
       for (const gap of extracted) {
         if (gap.area_px >= minArea) {
@@ -236,6 +237,7 @@ export function applyPolygon(
   polygon: Feature<Polygon>,
   imgW: number,
   imgH: number,
+  source: 'auto' | 'manual' = 'manual',
 ): Gap[] {
   const overlappingIndices: number[] = [];
   const turfGaps: Feature<Polygon>[] = [];
@@ -254,7 +256,7 @@ export function applyPolygon(
 
   if (overlappingIndices.length === 0) {
     // No overlap — add as a new independent gap
-    return [...gaps, turfPolygonToGap(polygon, imgW, imgH)];
+    return [...gaps, turfPolygonToGap(polygon, imgW, imgH, source)];
   }
 
   // Union the magic-wand polygon with all overlapping gaps
@@ -276,7 +278,7 @@ export function applyPolygon(
   for (let i = 0; i < gaps.length; i++) {
     if (!overlappingSet.has(i)) result.push(gaps[i]);
   }
-  result.push(...extractPolygons(merged, imgW, imgH));
+  result.push(...extractPolygons(merged, imgW, imgH, source));
   return result;
 }
 
@@ -306,9 +308,9 @@ export function mergeIncomingGaps(
   if (existingGaps.length === 0) {
     return incomingGaps.map(g => {
       try {
-        return turfPolygonToGap(gapToTurfPolygon(g, imgW, imgH), imgW, imgH);
+        return turfPolygonToGap(gapToTurfPolygon(g, imgW, imgH), imgW, imgH, 'auto');
       } catch {
-        return g;
+        return { ...g, source: 'auto' };
       }
     });
   }
@@ -321,10 +323,16 @@ export function mergeIncomingGaps(
       incomingPoly = gapToTurfPolygon(incomingGap, imgW, imgH);
     } catch {
       // Degenerate geometry — keep as-is without merging
-      working.push(incomingGap);
+      working.push({ ...incomingGap, source: 'auto' });
       continue;
     }
-    working = applyPolygon(working, incomingPoly, imgW, imgH);
+    
+    // Check if it overlaps any manual gaps
+    const overlapsManual = working.some(g => 
+      g.source === 'manual' && turf.booleanIntersects(gapToTurfPolygon(g, imgW, imgH), incomingPoly)
+    );
+
+    working = applyPolygon(working, incomingPoly, imgW, imgH, overlapsManual ? 'manual' : 'auto');
   }
 
   return working;
@@ -402,7 +410,7 @@ export function applySplit(
         continue;
       }
 
-      const extracted = extractPolygons(diff as Feature<Polygon | MultiPolygon>, imgW, imgH);
+      const extracted = extractPolygons(diff as Feature<Polygon | MultiPolygon>, imgW, imgH, 'manual');
       for (const gap of extracted) {
         if (gap.area_px >= minArea) {
           result.push(gap);
@@ -420,11 +428,11 @@ export function applySplit(
 /**
  * Extract individual Gap objects from a Polygon or MultiPolygon feature.
  */
-function extractPolygons(feature: Feature<Polygon | MultiPolygon>, imgW: number, imgH: number): Gap[] {
+function extractPolygons(feature: Feature<Polygon | MultiPolygon>, imgW: number, imgH: number, source?: 'auto' | 'manual'): Gap[] {
   const geom = feature.geometry;
 
   if (geom.type === 'Polygon') {
-    return [turfPolygonToGap(turf.polygon(geom.coordinates), imgW, imgH)];
+    return [turfPolygonToGap(turf.polygon(geom.coordinates), imgW, imgH, source)];
   }
 
   // MultiPolygon — split into separate gaps
@@ -432,7 +440,7 @@ function extractPolygons(feature: Feature<Polygon | MultiPolygon>, imgW: number,
   for (const coords of geom.coordinates) {
     try {
       const poly = turf.polygon(coords);
-      results.push(turfPolygonToGap(poly, imgW, imgH));
+      results.push(turfPolygonToGap(poly, imgW, imgH, source));
     } catch {
       // Skip invalid polygons
     }

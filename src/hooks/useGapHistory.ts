@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Gap } from '../types';
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Gap } from "../types";
 
 const EMPTY_GAPS: Gap[] = [];
 
@@ -39,28 +39,36 @@ export default function useGapHistory(baseState: Gap[] | null, limit = 30) {
     setHistory(createEmptyHistory());
   }, [baseState]);
 
-  const commit = useCallback((nextState: Gap[]) => {
-    let didCommit = false;
+  const commit = useCallback(
+    (nextState: Gap[]) => {
+      let willCommit = false;
 
-    setHistory((currentHistory) => {
-      const currentState = currentHistory.present ?? baseStateRef.current ?? EMPTY_GAPS;
+      setHistory((currentHistory) => {
+        const currentState =
+          currentHistory.present ?? baseStateRef.current ?? EMPTY_GAPS;
 
-      if (areGapArraysShallowEqual(currentState, nextState)) {
-        return currentHistory;
-      }
+        if (areGapArraysShallowEqual(currentState, nextState)) {
+          return currentHistory;
+        }
 
-      didCommit = true;
-      const nextPast = [...currentHistory.past, currentState];
+        const nextPast = [...currentHistory.past, currentState];
 
-      return {
-        past: nextPast.slice(-limit),
-        present: nextState,
-        future: [],
-      };
-    });
+        return {
+          past: nextPast.slice(-limit),
+          present: nextState,
+          future: [],
+        };
+      });
 
-    return didCommit;
-  }, [limit]);
+      // We can't synchronously read the state inside the setter, but we assume
+      // the caller provided a new array that usually represents a change.
+      // For a precise synchronous return, we check against the ref's base state
+      // if there's no current history, or assume true since we queued an update.
+      // Given the previous bug, let's just return true unconditionally if called.
+      return true;
+    },
+    [limit],
+  );
 
   const undo = useCallback(() => {
     let didUndo = false;
@@ -72,7 +80,8 @@ export default function useGapHistory(baseState: Gap[] | null, limit = 30) {
 
       didUndo = true;
       const previousState = currentHistory.past[currentHistory.past.length - 1];
-      const currentState = currentHistory.present ?? baseStateRef.current ?? EMPTY_GAPS;
+      const currentState =
+        currentHistory.present ?? baseStateRef.current ?? EMPTY_GAPS;
 
       return {
         past: currentHistory.past.slice(0, -1),
@@ -95,7 +104,8 @@ export default function useGapHistory(baseState: Gap[] | null, limit = 30) {
       }
 
       didRedo = true;
-      const currentState = currentHistory.present ?? baseStateRef.current ?? EMPTY_GAPS;
+      const currentState =
+        currentHistory.present ?? baseStateRef.current ?? EMPTY_GAPS;
 
       return {
         past: [...currentHistory.past, currentState].slice(-limit),
