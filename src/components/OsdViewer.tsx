@@ -117,8 +117,10 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const isPaintingRef = useRef(false);
   const lastPaintImgRef = useRef<{ x: number; y: number } | null>(null);
 
-  const [tilesReady, setTilesReady] = useState(false);
-  const [elapsed,    setElapsed]    = useState(0);
+  const [tilesReady,   setTilesReady]  = useState(false);
+  const [tileError,    setTileError]   = useState<string | null>(null);
+  const [retrySignal,  setRetrySignal] = useState(0);
+  const [elapsed,      setElapsed]     = useState(0);
   const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const gapsRef       = useRef<Gap[]>(gaps);
@@ -382,6 +384,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     if (!containerRef.current) return;
 
     setTilesReady(false);
+    setTileError(null);
     startTimer();
 
     // Ray-casting point-in-polygon
@@ -399,7 +402,6 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
     const viewer = OpenSeadragon({
       element: containerRef.current,
-      tileSources: getDziUrl(stem),
       showNavigationControl: false,
       showNavigator: true,
       navigatorPosition: 'BOTTOM_RIGHT',
@@ -572,9 +574,37 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       scheduleFullRedraw();
     });
 
-    viewer.addHandler('open-failed', () => {
-      retryRef.current = setTimeout(() => viewer.open(getDziUrl(stem) as unknown as OpenSeadragon.TileSourceSpecifier), 2000);
-    });
+    // ── DZI availability polling ─────────────────────────────────────────────
+    // OSD's open-failed handler is unreliable for repeated retries, so we poll
+    // the DZI URL directly with HEAD requests until the tile server responds 200.
+    let cleaned = false;
+    const POLL_INTERVAL_MS = 3000;
+    const POLL_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+    const pollStart = Date.now();
+
+    function scheduleDziPoll() {
+      const dziUrl = getDziUrl(stem);
+      retryRef.current = setTimeout(async () => {
+        if (cleaned) return;
+        if (Date.now() - pollStart > POLL_TIMEOUT_MS) {
+          setTileError('Image tiles took too long to load. Please try again.');
+          stopTimer();
+          return;
+        }
+        try {
+          const res = await fetch(dziUrl, { method: 'HEAD' });
+          if (cleaned) return;
+          if (res.ok) {
+            viewer.open(dziUrl as unknown as OpenSeadragon.TileSourceSpecifier);
+          } else {
+            scheduleDziPoll();
+          }
+        } catch {
+          if (!cleaned) scheduleDziPoll();
+        }
+      }, POLL_INTERVAL_MS);
+    }
+    scheduleDziPoll();
 
     // ── Animation tracking for LOD ──────────────────────────────────────
     viewer.addHandler('animation-start', () => { animatingRef.current = true; });
@@ -1003,6 +1033,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     });
 
     return () => {
+      cleaned = true;
       cancelAnimationFrame(rafIdRef.current);
       if (retryRef.current) clearTimeout(retryRef.current);
       stopTimer();
@@ -1024,7 +1055,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       viewer.destroy();
       viewerRef.current = null;
     };
-  }, [stem, startTimer, stopTimer, scheduleRedraw, scheduleFullRedraw]);
+  }, [stem, startTimer, stopTimer, scheduleRedraw, scheduleFullRedraw, retrySignal]);
 
   // Redraw whenever gap data or visibility changes
   useEffect(() => {
@@ -1111,21 +1142,39 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
       {/* Polygon overlay canvas is injected programmatically into viewer.canvas */}
 
-      {/* Loading overlay */}
+      {/* Loading / error overlay */}
       {!tilesReady && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 bg-gray-950 z-10">
-          <svg className="w-8 h-8 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10"
-                    stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <p className="text-sm text-gray-400">Preparing image tiles…</p>
-          <p className="text-xs text-gray-600">
-            {elapsed < 10
-              ? 'This may take a moment for large images'
-              : `Still working… ${elapsed}s elapsed`}
-          </p>
+          {tileError ? (
+            <>
+              <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+              <p className="text-sm text-gray-300">{tileError}</p>
+              <button
+                onClick={() => { setRetrySignal(s => s + 1); }}
+                className="px-4 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 text-white rounded-md"
+              >
+                Try Again
+              </button>
+            </>
+          ) : (
+            <>
+              <svg className="w-8 h-8 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10"
+                        stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <p className="text-sm text-gray-400">Preparing image tiles…</p>
+              <p className="text-xs text-gray-600">
+                {elapsed < 10
+                  ? 'This may take a moment for large images'
+                  : `Still working… ${elapsed}s elapsed`}
+              </p>
+            </>
+          )}
         </div>
       )}
 
