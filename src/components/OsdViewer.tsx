@@ -116,6 +116,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   }>({ isDragging: false, startImg: { x: 0, y: 0 }, currentImg: { x: 0, y: 0 } });
   const isPaintingRef = useRef(false);
   const lastPaintImgRef = useRef<{ x: number; y: number } | null>(null);
+  const lastQuickSelectPosRef = useRef<{ x: number; y: number } | null>(null);
 
   const [tilesReady,   setTilesReady]  = useState(false);
   const [tileError,    setTileError]   = useState<string | null>(null);
@@ -565,7 +566,6 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
       // Optimistic update to prevent stale data on rapid stamps
       gapsRef.current = newGaps;
-      onGapsModifiedRef.current?.(newGaps);
     }
 
     viewer.addHandler('open', () => {
@@ -633,8 +633,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
       const currentClickMode = clickModeRef.current;
       if (currentClickMode === 'pan') return;
-      // Brush/eraser/split/object-select handled by canvas-press/drag/release
-      if (currentClickMode === 'brush' || currentClickMode === 'eraser' || currentClickMode === 'split' || currentClickMode === 'object-select') {
+      // Brush/eraser/split/object-select/quick-select handled by canvas-press/drag/release
+      if (currentClickMode === 'brush' || currentClickMode === 'eraser' || currentClickMode === 'split' || currentClickMode === 'object-select' || currentClickMode === 'quick-select') {
         event.preventDefaultAction = true;
         return;
       }
@@ -718,10 +718,24 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       const viewportPoint = viewerRef.current.viewport.pointFromPixel(event.position, true);
       const imgPoint = viewerRef.current.viewport.viewportToImageCoordinates(viewportPoint);
 
-      if (mode === 'brush' || mode === 'eraser') {
+      if (mode === 'brush' || mode === 'eraser' || mode === 'quick-select') {
         isPaintingRef.current = true;
         lastPaintImgRef.current = { x: imgPoint.x, y: imgPoint.y };
-        applyPaintStamp(imgPoint.x, imgPoint.y, mode);
+
+        if (mode === 'quick-select') {
+          lastQuickSelectPosRef.current = { x: event.position.x, y: event.position.y };
+          const v = viewerRef.current;
+          const size = getEffectiveSize();
+          if (v && size) {
+            const polygon = executeMagicWand(v, event.position, wandToleranceRef.current);
+            if (polygon) {
+              gapsRef.current = applyPolygon(gapsRef.current, polygon, size.width, size.height);
+            }
+          }
+        } else {
+          applyPaintStamp(imgPoint.x, imgPoint.y, mode);
+        }
+
         scheduleFullRedraw();
         event.preventDefaultAction = true;
         return;
@@ -797,8 +811,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         return;
       }
 
-      // Handle brush/eraser drag painting
-      if ((mode === 'brush' || mode === 'eraser') && isPaintingRef.current) {
+      // Handle brush/eraser/quick-select drag painting
+      if ((mode === 'brush' || mode === 'eraser' || mode === 'quick-select') && isPaintingRef.current) {
         const v = viewerRef.current;
         if (!v || !v.isOpen()) return;
 
@@ -811,7 +825,27 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         const brushRadius = brushSizeRef.current / 2;
         const minDist = brushRadius * 0.5;
 
-        if (last) {
+        if (mode === 'quick-select') {
+          const lastPos = lastQuickSelectPosRef.current;
+          if (lastPos) {
+            const dx = event.position.x - lastPos.x;
+            const dy = event.position.y - lastPos.y;
+            const dist = Math.hypot(dx, dy);
+
+            // Throttling magic wand to every 15 screen pixels during drag
+            if (dist >= 15) {
+              const size = getEffectiveSize();
+              if (size) {
+                const polygon = executeMagicWand(v, event.position, wandToleranceRef.current);
+                if (polygon) {
+                  gapsRef.current = applyPolygon(gapsRef.current, polygon, size.width, size.height);
+                  scheduleFullRedraw();
+                }
+              }
+              lastQuickSelectPosRef.current = { x: event.position.x, y: event.position.y };
+            }
+          }
+        } else if (last) {
           const dx = imgPoint.x - last.x;
           const dy = imgPoint.y - last.y;
           const dist = Math.hypot(dx, dy);
@@ -939,8 +973,13 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
           }
         }
 
+        if (mode === 'brush' || mode === 'eraser' || mode === 'quick-select') {
+          onGapsModifiedRef.current?.(gapsRef.current);
+        }
+
         isPaintingRef.current = false;
         lastPaintImgRef.current = null;
+        lastQuickSelectPosRef.current = null;
         return;
       }
 

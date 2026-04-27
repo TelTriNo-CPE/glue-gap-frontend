@@ -17,7 +17,10 @@ export default defineConfig({
         target: 'http://localhost:3030',
         changeOrigin: true,
       },
-      '/tiles': 'http://localhost:3030',
+      '/tiles': {
+        target: 'http://localhost:3030',
+        changeOrigin: true,
+      },
       // image-processor (port 8080) — specific paths before catch-all /exports
       '/analyze-gaps': 'http://localhost:8080',
       '/exports/excel': 'http://localhost:8080',
