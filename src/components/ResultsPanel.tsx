@@ -189,7 +189,7 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
               {result?.radius_stats && (
                 <section>
                   <h3 className="text-xs font-semibold text-gray-500 uppercase mb-3">
-                    Radius Statistics (px)
+                    Radius Statistics
                   </h3>
                   <RadiusStatsPanel stats={result.radius_stats} />
                 </section>
