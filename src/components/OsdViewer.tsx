@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import OpenSeadragon from 'openseadragon';
+import * as turf from '@turf/turf';
 import { getDziUrl } from '../api';
 import type { BoundingBox, Gap, ClickMode } from '../types';
 import { applyBrush, applyEraser, applySplit, applyPolygon } from '../utils/turfBridge';
@@ -26,6 +27,7 @@ interface Props {
   onGapsModified?: (newGaps: Gap[]) => void;
   imageSize: { width: number; height: number } | null;
   wandTolerance: number;
+  selectionMode: SelectionMode;
   onInfoToast?: (message: string) => void;
   onObjectSelectBbox?: (bbox: BoundingBox) => void;
 }
@@ -100,7 +102,7 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, selectedColor, brushSize, onGapsModified, imageSize, wandTolerance, onInfoToast, onObjectSelectBbox }: Props) {
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, selectedColor, brushSize, onGapsModified, imageSize, wandTolerance, selectionMode, onInfoToast, onObjectSelectBbox }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -117,6 +119,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const isPaintingRef = useRef(false);
   const lastPaintImgRef = useRef<{ x: number; y: number } | null>(null);
   const lastQuickSelectPosRef = useRef<{ x: number; y: number } | null>(null);
+  const freehandPointsRef = useRef<{ x: number; y: number }[]>([]);
+  const polyPointsRef = useRef<{ x: number; y: number }[]>([]);
 
   const [tilesReady,   setTilesReady]  = useState(false);
   const [tileError,    setTileError]   = useState<string | null>(null);
@@ -140,6 +144,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const onSelectGapRef = useRef(onSelectGap);
   const imageSizeRef = useRef(imageSize);
   const wandToleranceRef = useRef(wandTolerance);
+  const selectionModeRef = useRef(selectionMode);
   const onInfoToastRef = useRef(onInfoToast);
   const onObjectSelectBboxRef = useRef(onObjectSelectBbox);
 
@@ -156,6 +161,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   useEffect(() => { onSelectGapRef.current = onSelectGap; }, [onSelectGap]);
   useEffect(() => { imageSizeRef.current = imageSize; }, [imageSize]);
   useEffect(() => { wandToleranceRef.current = wandTolerance; }, [wandTolerance]);
+  useEffect(() => { selectionModeRef.current = selectionMode; }, [selectionMode]);
   useEffect(() => { onInfoToastRef.current = onInfoToast; }, [onInfoToast]);
   useEffect(() => { onObjectSelectBboxRef.current = onObjectSelectBbox; }, [onObjectSelectBbox]);
   useEffect(() => { fillColorRef.current = fillColor; }, [fillColor]);
@@ -457,12 +463,55 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       if (!bCanvas) return;
       const mode = clickModeRef.current;
       
-      if (mode === 'split') {
-        // Don't clear during a split drag — canvas-drag draws the preview line
+      if (mode === 'split' || mode === 'lasso-freehand') {
+        // Don't clear during a drag — canvas-drag draws the preview path
         if (!isPaintingRef.current) {
           const ctx = bCanvas.getContext('2d');
           if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
         }
+        return;
+      }
+
+      if (mode === 'lasso-polygon') {
+        const v = viewerRef.current;
+        if (!v || !v.isOpen()) return;
+        const ctx = bCanvas.getContext('2d');
+        if (!ctx) return;
+        ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+
+        const points = polyPointsRef.current;
+        if (points.length === 0) return;
+
+        // Draw current committed lines + rubber band
+        ctx.beginPath();
+        const isSubtract = selectionModeRef.current === 'subtract';
+        ctx.strokeStyle = isSubtract ? 'rgba(239, 68, 68, 0.9)' : 'rgba(163, 230, 53, 0.9)'; // Red-500 or Lime-400
+        ctx.lineWidth = 2;
+
+        const startVp = v.viewport.imageToViewportCoordinates(new OpenSeadragon.Point(points[0].x, points[0].y));
+        const startPx = v.viewport.pixelFromPoint(startVp, true);
+        ctx.moveTo(startPx.x, startPx.y);
+
+        for (let i = 1; i < points.length; i++) {
+          const vp = v.viewport.imageToViewportCoordinates(new OpenSeadragon.Point(points[i].x, points[i].y));
+          const px = v.viewport.pixelFromPoint(vp, true);
+          ctx.lineTo(px.x, px.y);
+        }
+
+        // Draw rubber band to mouse
+        ctx.lineTo(screenX, screenY);
+        ctx.stroke();
+
+        // Draw start point circle to indicate closure target
+        ctx.beginPath();
+        ctx.arc(startPx.x, startPx.y, 8, 0, 2 * Math.PI);
+        const dist = Math.hypot(screenX - startPx.x, screenY - startPx.y);
+        if (dist < 12 && points.length >= 3) {
+          ctx.fillStyle = isSubtract ? 'rgba(239, 68, 68, 0.6)' : 'rgba(163, 230, 53, 0.6)';
+          ctx.fill();
+        }
+        ctx.strokeStyle = isSubtract ? 'rgba(239, 68, 68, 1)' : 'rgba(163, 230, 53, 1)';
+        ctx.stroke();
         return;
       }
 
@@ -639,6 +688,48 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         return;
       }
 
+      // ── Lasso Polygon ──────────────────────────────────────────────────
+      if (currentClickMode === 'lasso-polygon') {
+        event.preventDefaultAction = true;
+        const v = viewerRef.current;
+        const size = getEffectiveSize();
+        if (!v || !size) return;
+
+        const viewportPoint = v.viewport.pointFromPixel(event.position, true);
+        const imgPoint = v.viewport.viewportToImageCoordinates(viewportPoint);
+        const points = polyPointsRef.current;
+
+        if (points.length >= 3) {
+          const startVp = v.viewport.imageToViewportCoordinates(new OpenSeadragon.Point(points[0].x, points[0].y));
+          const startPx = v.viewport.pixelFromPoint(startVp, true);
+          const dist = Math.hypot(event.position.x - startPx.x, event.position.y - startPx.y);
+
+          if (dist < 12) {
+            // Close polygon
+            const ring = points.map(p => [p.x, p.y] as [number, number]);
+            ring.push([points[0].x, points[0].y]);
+            const polygon = turf.polygon([ring]);
+            const newGaps = applyPolygon(gapsRef.current, polygon as any, size.width, size.height, 'manual', selectionModeRef.current);
+            gapsRef.current = newGaps;
+            onGapsModifiedRef.current?.(newGaps);
+            polyPointsRef.current = [];
+            scheduleFullRedraw();
+
+            // Clear cursor canvas
+            const bCanvas = brushCursorCanvasRef.current;
+            if (bCanvas) {
+              const ctx = bCanvas.getContext('2d');
+              if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+            }
+            return;
+          }
+        }
+
+        polyPointsRef.current.push({ x: imgPoint.x, y: imgPoint.y });
+        drawBrushCursorAtPoint(event.position.x, event.position.y);
+        return;
+      }
+
       // ── Magic Wand ──────────────────────────────────────────────────────
       if (currentClickMode === 'magic-wand') {
         event.preventDefaultAction = true;
@@ -650,10 +741,10 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         if (!polygon) return;
 
         const currentGaps = gapsRef.current;
-        const newGaps = applyPolygon(currentGaps, polygon, size.width, size.height);
+        const newGaps = applyPolygon(currentGaps, polygon, size.width, size.height, 'manual', selectionModeRef.current);
         gapsRef.current = newGaps;
         onGapsModifiedRef.current?.(newGaps);
-        onInfoToastRef.current?.('Magic Wand applied');
+        onInfoToastRef.current?.(selectionModeRef.current === 'add' ? 'Magic Wand applied' : 'Area subtracted');
         scheduleFullRedraw();
         return;
       }
@@ -706,7 +797,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       if (mode === 'pan') return;
 
       // Magic-wand is handled entirely in canvas-click — prevent OSD panning here
-      if (mode === 'magic-wand') {
+      if (mode === 'magic-wand' || mode === 'lasso-polygon') {
         event.preventDefaultAction = true;
         return;
       }
@@ -718,18 +809,20 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       const viewportPoint = viewerRef.current.viewport.pointFromPixel(event.position, true);
       const imgPoint = viewerRef.current.viewport.viewportToImageCoordinates(viewportPoint);
 
-      if (mode === 'brush' || mode === 'eraser' || mode === 'quick-select') {
+      if (mode === 'brush' || mode === 'eraser' || mode === 'quick-select' || mode === 'lasso-freehand') {
         isPaintingRef.current = true;
         lastPaintImgRef.current = { x: imgPoint.x, y: imgPoint.y };
 
-        if (mode === 'quick-select') {
+        if (mode === 'lasso-freehand') {
+          freehandPointsRef.current = [{ x: imgPoint.x, y: imgPoint.y }];
+        } else if (mode === 'quick-select') {
           lastQuickSelectPosRef.current = { x: event.position.x, y: event.position.y };
           const v = viewerRef.current;
           const size = getEffectiveSize();
           if (v && size) {
             const polygon = executeMagicWand(v, event.position, wandToleranceRef.current);
             if (polygon) {
-              gapsRef.current = applyPolygon(gapsRef.current, polygon, size.width, size.height);
+              gapsRef.current = applyPolygon(gapsRef.current, polygon, size.width, size.height, 'manual', selectionModeRef.current);
             }
           }
         } else {
@@ -811,8 +904,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         return;
       }
 
-      // Handle brush/eraser/quick-select drag painting
-      if ((mode === 'brush' || mode === 'eraser' || mode === 'quick-select') && isPaintingRef.current) {
+      // Handle brush/eraser/quick-select/lasso-freehand drag painting
+      if ((mode === 'brush' || mode === 'eraser' || mode === 'quick-select' || mode === 'lasso-freehand') && isPaintingRef.current) {
         const v = viewerRef.current;
         if (!v || !v.isOpen()) return;
 
@@ -821,6 +914,38 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
         const viewportPoint = v.viewport.pointFromPixel(event.position, true);
         const imgPoint = v.viewport.viewportToImageCoordinates(viewportPoint);
+
+        if (mode === 'lasso-freehand') {
+          freehandPointsRef.current.push({ x: imgPoint.x, y: imgPoint.y });
+
+          // Draw the path preview on the brush cursor canvas
+          const bCanvas = brushCursorCanvasRef.current;
+          if (bCanvas) {
+            const ctx = bCanvas.getContext('2d');
+            if (ctx) {
+              ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+              ctx.beginPath();
+              const isSubtract = selectionModeRef.current === 'subtract';
+              ctx.strokeStyle = isSubtract ? 'rgba(239, 68, 68, 0.9)' : 'rgba(163, 230, 53, 0.9)'; // Red-500 or Lime-400
+              ctx.lineWidth = 2;
+
+              const pts = freehandPointsRef.current;
+              const startVp = v.viewport.imageToViewportCoordinates(new OpenSeadragon.Point(pts[0].x, pts[0].y));
+              const startPx = v.viewport.pixelFromPoint(startVp, true);
+              ctx.moveTo(startPx.x, startPx.y);
+
+              for (let i = 1; i < pts.length; i++) {
+                const vp = v.viewport.imageToViewportCoordinates(new OpenSeadragon.Point(pts[i].x, pts[i].y));
+                const px = v.viewport.pixelFromPoint(vp, true);
+                ctx.lineTo(px.x, px.y);
+              }
+              ctx.stroke();
+            }
+          }
+          event.preventDefaultAction = true;
+          return;
+        }
+
         const last = lastPaintImgRef.current;
         const brushRadius = brushSizeRef.current / 2;
         const minDist = brushRadius * 0.5;
@@ -838,7 +963,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
               if (size) {
                 const polygon = executeMagicWand(v, event.position, wandToleranceRef.current);
                 if (polygon) {
-                  gapsRef.current = applyPolygon(gapsRef.current, polygon, size.width, size.height);
+                  gapsRef.current = applyPolygon(gapsRef.current, polygon, size.width, size.height, 'manual', selectionModeRef.current);
                   scheduleFullRedraw();
                 }
               }
@@ -973,7 +1098,28 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
           }
         }
 
-        if (mode === 'brush' || mode === 'eraser' || mode === 'quick-select') {
+        if (mode === 'brush' || mode === 'eraser' || mode === 'quick-select' || mode === 'lasso-freehand') {
+          if (mode === 'lasso-freehand') {
+            const pts = freehandPointsRef.current;
+            if (pts.length >= 3) {
+              const size = getEffectiveSize();
+              if (size) {
+                const ring = pts.map(p => [p.x, p.y] as [number, number]);
+                ring.push([pts[0].x, pts[0].y]); // close ring
+                const polygon = turf.polygon([ring]);
+                const newGaps = applyPolygon(gapsRef.current, polygon as any, size.width, size.height, 'manual', selectionModeRef.current);
+                gapsRef.current = newGaps;
+                scheduleFullRedraw();
+              }
+            }
+            freehandPointsRef.current = [];
+            // Clear cursor canvas
+            const bCanvas = brushCursorCanvasRef.current;
+            if (bCanvas) {
+              const ctx = bCanvas.getContext('2d');
+              if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+            }
+          }
           onGapsModifiedRef.current?.(gapsRef.current);
         }
 
@@ -1152,16 +1298,30 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     }
   }, [showMinimap]);
 
-  // Update cursor based on clickMode
+  // Update cursor based on clickMode and clear pending lasso points
   useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) return;
+
+    // Clear any pending lasso points when mode changes
+    if (clickMode !== 'lasso-polygon') {
+      polyPointsRef.current = [];
+      const bCanvas = brushCursorCanvasRef.current;
+      if (bCanvas) {
+        const ctx = bCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+      }
+    }
+    if (clickMode !== 'lasso-freehand') {
+      freehandPointsRef.current = [];
+    }
+
     const canvas = viewer.canvas as HTMLElement;
     if (clickMode === 'pan') {
       canvas.style.cursor = 'grab';
     } else if (clickMode === 'brush' || clickMode === 'eraser') {
       canvas.style.cursor = 'none';
-    } else if (clickMode === 'magic-wand') {
+    } else if (clickMode === 'magic-wand' || clickMode === 'lasso-freehand' || clickMode === 'lasso-polygon') {
       canvas.style.cursor = 'cell';
     } else if (clickMode === 'object-select') {
       canvas.style.cursor = 'crosshair';

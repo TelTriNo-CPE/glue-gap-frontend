@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { downloadExcel, downloadJpeg } from '../api';
-import type { ClickMode } from '../types';
+import type { ClickMode, SelectionMode } from '../types';
 
 interface Props {
   width?: number;
@@ -49,6 +49,8 @@ interface Props {
   onResetColors: () => void;
   wandTolerance: number;
   onWandToleranceChange: (value: number) => void;
+  selectionMode: SelectionMode;
+  onSelectionModeChange: (mode: SelectionMode) => void;
 }
 
 const COLOR_PRESETS = ['#ff0000', '#2563eb', '#16a34a', '#eab308', '#9333ea'];
@@ -129,6 +131,8 @@ export default function Toolbar({
   onResetColors,
   wandTolerance,
   onWandToleranceChange,
+  selectionMode,
+  onSelectionModeChange,
 }: Props) {
   const [busy, setBusy] = useState<'excel' | 'jpeg' | null>(null);
 
@@ -220,6 +224,26 @@ export default function Toolbar({
             Eraser
           </button>
           <button
+            onClick={() => setClickMode('lasso-freehand')}
+            className={`flex-1 min-w-[4.5rem] flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+              clickMode === 'lasso-freehand' ? 'bg-orange-600 text-white shadow-inner' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}
+            title="Freehand Lasso — drag to draw a custom polygon"
+          >
+            <LassoIcon />
+            Lasso
+          </button>
+          <button
+            onClick={() => setClickMode('lasso-polygon')}
+            className={`flex-1 min-w-[4.5rem] flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+              clickMode === 'lasso-polygon' ? 'bg-amber-600 text-white shadow-inner' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}
+            title="Polygonal Lasso — click point-by-point to create a custom polygon"
+          >
+            <PolygonIcon />
+            Poly
+          </button>
+          <button
             onClick={() => setClickMode('split')}
             className={`flex-1 min-w-[4.5rem] flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
               clickMode === 'split' ? 'bg-amber-500 text-white shadow-inner' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
@@ -263,6 +287,38 @@ export default function Toolbar({
           </button>
         </div>
       </div>
+
+      {/* Boolean Selection Mode (Add/Subtract) — only for relevant tools */}
+      {['magic-wand', 'quick-select', 'object-select', 'lasso-freehand', 'lasso-polygon'].includes(clickMode) && (
+        <div className="px-2 pb-2">
+          <div className="flex bg-gray-900/50 rounded-lg p-1 border border-gray-700/50">
+            <button
+              onClick={() => onSelectionModeChange('add')}
+              className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-md text-[11px] font-bold transition-all ${
+                selectionMode === 'add' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+              }`}
+              title="Add (Union) — combine new selection with existing gaps"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              ADD
+            </button>
+            <button
+              onClick={() => onSelectionModeChange('subtract')}
+              className={`flex-1 flex items-center justify-center gap-2 py-1.5 px-3 rounded-md text-[11px] font-bold transition-all ${
+                selectionMode === 'subtract' ? 'bg-red-600 text-white shadow-sm' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+              }`}
+              title="Subtract (Difference) — cut holes in existing gaps (Hold Alt)"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 12h-15" />
+              </svg>
+              CUT
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Tolerance Slider — shown only when magic-wand or quick-select is active */}
       {(clickMode === 'magic-wand' || clickMode === 'quick-select') && (
@@ -795,6 +851,22 @@ function QuickSelectIcon() {
     <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round"
         d="M4.5 12V7.5a7.5 7.5 0 0 1 15 0V12m-15 0v2.25c0 1.243.68 2.378 1.772 2.914l3.18 1.564a2.25 2.25 0 0 0 1.954 0l3.18-1.564A3.375 3.375 0 0 0 19.5 14.25V12m-15 0h3.75m11.25 0h3.75" />
+    </svg>
+  );
+}
+
+function LassoIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6 3c-1.5 0-3 1.5-3 3s1.5 3 3 3 3-1.5 3-3-1.5-3-3-3Zm3 3c0 4.5 4.5 6 4.5 10.5 0 4.5-4.5 4.5-4.5 4.5s9 0 9-4.5c0-4.5-4.5-6-4.5-10.5C13.5 1.5 9 1.5 9 6Z" />
+    </svg>
+  );
+}
+
+function PolygonIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
     </svg>
   );
 }

@@ -224,13 +224,8 @@ export function applyEraser(
 // ─── Magic Wand polygon union ────────────────────────────────────────────────
 
 /**
- * Union a pre-computed polygon (e.g. from the magic wand tool) into the gap list.
- *
- * Behaviour:
- *  - If the polygon overlaps one or more existing gaps they are all merged into
- *    a single gap (same union logic as applyBrush).
- *  - If the polygon does not overlap any existing gap it is appended as a brand
- *    new gap.
+ * Apply a pre-computed polygon (e.g. from magic wand, lasso, or object select) 
+ * to the gap list using either Union (add) or Difference (subtract) logic.
  */
 export function applyPolygon(
   gaps: Gap[],
@@ -238,6 +233,8 @@ export function applyPolygon(
   imgW: number,
   imgH: number,
   source: 'auto' | 'manual' = 'manual',
+  mode: 'add' | 'subtract' = 'add',
+  minArea = 4,
 ): Gap[] {
   const overlappingIndices: number[] = [];
   const turfGaps: Feature<Polygon>[] = [];
@@ -254,12 +251,40 @@ export function applyPolygon(
     }
   }
 
+  if (mode === 'subtract') {
+    if (overlappingIndices.length === 0) return gaps;
+
+    const overlappingSet = new Set(overlappingIndices);
+    const result: Gap[] = [];
+
+    for (let i = 0; i < gaps.length; i++) {
+      if (!overlappingSet.has(i)) {
+        result.push(gaps[i]);
+        continue;
+      }
+
+      try {
+        const diff = turf.difference(turf.featureCollection([turfGaps[i], polygon]));
+        if (!diff) continue; // Fully erased
+
+        const extracted = extractPolygons(diff as Feature<Polygon | MultiPolygon>, imgW, imgH, 'manual');
+        for (const g of extracted) {
+          if (g.area_px >= minArea) result.push(g);
+        }
+      } catch {
+        result.push(gaps[i]);
+      }
+    }
+    return result;
+  }
+
+  // mode === 'add' (Union)
   if (overlappingIndices.length === 0) {
     // No overlap — add as a new independent gap
     return [...gaps, turfPolygonToGap(polygon, imgW, imgH, source)];
   }
 
-  // Union the magic-wand polygon with all overlapping gaps
+  // Union the polygon with all overlapping gaps
   let merged: Feature<Polygon | MultiPolygon> = polygon;
   for (const idx of overlappingIndices) {
     try {

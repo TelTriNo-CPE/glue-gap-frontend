@@ -62,7 +62,9 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [outlineColor, setOutlineColor] = useState(DEFAULT_OUTLINE_COLOR);
   const [fillColor, setFillColor] = useState(DEFAULT_FILL_COLOR);
   const [selectedColor, setSelectedColor] = useState(DEFAULT_SELECTED_COLOR);
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>('add');
   const previousModeRef = useRef<ClickMode | null>(null);
+  const selectionModeBeforeAltRef = useRef<SelectionMode>('add');
   // Holds the pre-detection and merged gaps so we can push them onto the
   // undo stack AFTER useGapHistory resets (see the flush useEffect below).
   const pendingMergeRef = useRef<{ existingGaps: Gap[]; mergedGaps: Gap[] } | null>(null);
@@ -419,6 +421,13 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         previousModeRef.current = clickMode;
         setClickMode('pan');
       }
+
+      if (e.key === 'Alt') {
+        // Prevent default so browser menu doesn't focus
+        e.preventDefault();
+        selectionModeBeforeAltRef.current = selectionMode;
+        setSelectionMode('subtract');
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -427,6 +436,10 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
           setClickMode(previousModeRef.current);
         }
         previousModeRef.current = null;
+      }
+
+      if (e.key === 'Alt') {
+        setSelectionMode(selectionModeBeforeAltRef.current);
       }
     };
 
@@ -437,6 +450,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         }
         previousModeRef.current = null;
       }
+      setSelectionMode(selectionModeBeforeAltRef.current);
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -650,9 +664,11 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       for (const gap of r.gaps) {
         try {
           const poly = gapToTurfPolygon(gap, imgW, imgH);
-          mergedGaps = applyPolygon(mergedGaps, poly, imgW, imgH, 'manual');
+          mergedGaps = applyPolygon(mergedGaps, poly, imgW, imgH, 'manual', selectionMode);
         } catch {
-          mergedGaps = [...mergedGaps, { ...gap, source: 'manual' as const }];
+          if (selectionMode === 'add') {
+            mergedGaps = [...mergedGaps, { ...gap, source: 'manual' as const }];
+          }
         }
       }
 
@@ -663,7 +679,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       setInfoToast(null);
       setToast(extractErrorMessage(err));
     }
-  }, [fileKey, sensitivity, minArea, handleGapsModified]);
+  }, [fileKey, sensitivity, minArea, handleGapsModified, selectionMode]);
 
   const overlayVisible = analyzing || parsing;
   const mobileLeftPanelWidth = Math.min(leftWidth, 320);
@@ -820,6 +836,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             onResetColors={resetAppearanceColors}
             wandTolerance={wandTolerance}
             onWandToleranceChange={setWandTolerance}
+            selectionMode={selectionMode}
+            onSelectionModeChange={setSelectionMode}
           />
         </div>
 
@@ -929,6 +947,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
               onGapsModified={handleGapsModified}
               imageSize={result?.image_size ?? null}
               wandTolerance={wandTolerance}
+              selectionMode={selectionMode}
               onInfoToast={setInfoToast}
               onObjectSelectBbox={handleObjectSelectBbox}
             />
