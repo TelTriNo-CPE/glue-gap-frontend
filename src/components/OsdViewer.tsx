@@ -444,10 +444,11 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
     // ── Brush cursor rendering ──────────────────────────────────────────
     const osdCanvasEl = viewer.canvas as HTMLElement;
-    function drawBrushCursor(e: MouseEvent) {
+    function drawBrushCursorAtPoint(screenX: number, screenY: number) {
       const bCanvas = brushCursorCanvasRef.current;
       if (!bCanvas) return;
       const mode = clickModeRef.current;
+      
       if (mode === 'split') {
         // Don't clear during a split drag — canvas-drag draws the preview line
         if (!isPaintingRef.current) {
@@ -456,6 +457,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         }
         return;
       }
+
       if (mode === 'magic-wand' || (mode !== 'brush' && mode !== 'eraser')) {
         const ctx = bCanvas.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
@@ -481,13 +483,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       if (!tiledImage) return;
       const brushRadius = brushSizeRef.current / 2;
 
-      // Get a reference point and an offset point to compute scale
-      const rect = osdCanvasEl.getBoundingClientRect();
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-
-      // Convert mouse position to image coordinates
-      const mouseWebPoint = new OpenSeadragon.Point(mouseX, mouseY);
+      // Convert screen position to image coordinates
+      const mouseWebPoint = new OpenSeadragon.Point(screenX, screenY);
       const mouseVpPoint = v.viewport.pointFromPixel(mouseWebPoint, true);
       const mouseImgPoint = v.viewport.viewportToImageCoordinates(mouseVpPoint);
 
@@ -502,7 +499,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       const color = mode === 'brush' ? 'rgba(34, 197, 94,' : 'rgba(239, 68, 68,';
 
       ctx.beginPath();
-      ctx.arc(mouseX, mouseY, screenRadius, 0, 2 * Math.PI);
+      ctx.arc(screenX, screenY, screenRadius, 0, 2 * Math.PI);
       ctx.strokeStyle = color + '0.8)';
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 3]);
@@ -510,6 +507,13 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       ctx.setLineDash([]);
       ctx.fillStyle = color + '0.15)';
       ctx.fill();
+    }
+
+    function onMouseMove(e: MouseEvent) {
+      const rect = osdCanvasEl.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+      drawBrushCursorAtPoint(mouseX, mouseY);
     }
 
     function clearBrushCursor() {
@@ -520,7 +524,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       }
     }
 
-    osdCanvasEl.addEventListener('mousemove', drawBrushCursor);
+    osdCanvasEl.addEventListener('mousemove', onMouseMove);
     osdCanvasEl.addEventListener('mouseleave', clearBrushCursor);
 
     // ── Image size helper ───────────────────────────────────────────────
@@ -763,6 +767,9 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         const v = viewerRef.current;
         if (!v || !v.isOpen()) return;
 
+        // Update visual cursor position during drag
+        drawBrushCursorAtPoint(event.position.x, event.position.y);
+
         const viewportPoint = v.viewport.pointFromPixel(event.position, true);
         const imgPoint = v.viewport.viewportToImageCoordinates(viewportPoint);
         const last = lastPaintImgRef.current;
@@ -980,7 +987,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       if (retryRef.current) clearTimeout(retryRef.current);
       stopTimer();
       resizeObserver.disconnect();
-      osdCanvasEl.removeEventListener('mousemove', drawBrushCursor);
+      osdCanvasEl.removeEventListener('mousemove', onMouseMove);
       osdCanvasEl.removeEventListener('mouseleave', clearBrushCursor);
       if (brushCursorCanvasRef.current && brushCursorCanvasRef.current.parentNode) {
         brushCursorCanvasRef.current.parentNode.removeChild(brushCursorCanvasRef.current);
