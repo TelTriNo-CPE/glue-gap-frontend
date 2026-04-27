@@ -838,6 +838,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             onWandToleranceChange={setWandTolerance}
             selectionMode={selectionMode}
             onSelectionModeChange={setSelectionMode}
+            hasGaps={displayGaps.length > 0}
           />
         </div>
 
