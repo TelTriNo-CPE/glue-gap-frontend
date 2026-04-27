@@ -79,6 +79,10 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   } = useGapHistory(result?.gaps ?? null, EDIT_HISTORY_LIMIT);
 
   const displayGaps = present ?? result?.gaps ?? EMPTY_GAPS;
+  // Stable ref so async callbacks (e.g. handleObjectSelectBbox) always read
+  // the *current* gaps rather than a stale closure snapshot.
+  const displayGapsRef = useRef(displayGaps);
+  useEffect(() => { displayGapsRef.current = displayGaps; }, [displayGaps]);
   const analysisStem = result?.stem ?? fileStem;
 
   // Safety net: clamp stale selection/hidden indices whenever displayGaps shrinks
@@ -640,8 +644,9 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       const imgW = r.image_size.width;
       const imgH = r.image_size.height;
 
-      // Merge each returned gap as 'manual' into the current working set
-      let mergedGaps = [...displayGaps];
+      // Use the ref so we merge into the *current* gaps at the time the API
+      // call returns, not a stale snapshot from when the drag ended.
+      let mergedGaps = [...displayGapsRef.current];
       for (const gap of r.gaps) {
         try {
           const poly = gapToTurfPolygon(gap, imgW, imgH);
@@ -658,7 +663,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       setInfoToast(null);
       setToast(extractErrorMessage(err));
     }
-  }, [fileKey, sensitivity, minArea, displayGaps, handleGapsModified]);
+  }, [fileKey, sensitivity, minArea, handleGapsModified]);
 
   const overlayVisible = analyzing || parsing;
   const mobileLeftPanelWidth = Math.min(leftWidth, 320);

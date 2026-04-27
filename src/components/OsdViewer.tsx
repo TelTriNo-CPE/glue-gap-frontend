@@ -134,6 +134,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const selectedColorRef = useRef(selectedColor);
   const brushSizeRef = useRef(brushSize);
   const onGapsModifiedRef = useRef(onGapsModified);
+  const onSelectGapRef = useRef(onSelectGap);
   const imageSizeRef = useRef(imageSize);
   const wandToleranceRef = useRef(wandTolerance);
   const onInfoToastRef = useRef(onInfoToast);
@@ -149,6 +150,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   useEffect(() => { outlineColorRef.current = outlineColor; }, [outlineColor]);
   useEffect(() => { brushSizeRef.current = brushSize; }, [brushSize]);
   useEffect(() => { onGapsModifiedRef.current = onGapsModified; }, [onGapsModified]);
+  useEffect(() => { onSelectGapRef.current = onSelectGap; }, [onSelectGap]);
   useEffect(() => { imageSizeRef.current = imageSize; }, [imageSize]);
   useEffect(() => { wandToleranceRef.current = wandTolerance; }, [wandTolerance]);
   useEffect(() => { onInfoToastRef.current = onInfoToast; }, [onInfoToast]);
@@ -651,18 +653,18 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
       if (currentClickMode === 'select') {
         if (found !== null) {
-          onSelectGap(found, 'select');
+          onSelectGapRef.current(found, 'select');
           event.preventDefaultAction = true;
         }
         // In 'select' mode, clicking outside does nothing to current selection
       } else {
         // Deselect mode
         if (found !== null) {
-          onSelectGap(found, 'deselect');
+          onSelectGapRef.current(found, 'deselect');
           event.preventDefaultAction = true;
         } else {
           // Clicking anywhere outside clears selection
-          onSelectGap(null, 'clear');
+          onSelectGapRef.current(null, 'clear');
         }
       }
     });
@@ -996,7 +998,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       }
 
       if (matchedIds.length > 0) {
-        onSelectGap(matchedIds, mode === 'select' ? 'select' : 'deselect');
+        onSelectGapRef.current(matchedIds, mode === 'select' ? 'select' : 'deselect');
       }
     });
 
