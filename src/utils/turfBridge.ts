@@ -280,6 +280,56 @@ export function applyPolygon(
   return result;
 }
 
+// ─── Merge incoming (auto-detected) gaps with existing (manual) gaps ─────────
+
+/**
+ * Merge a new set of incoming gaps (e.g. from auto-detection) into an existing
+ * working set (e.g. manually drawn gaps), unioning any overlapping regions.
+ *
+ * Algorithm: iterate over every incoming gap and call applyPolygon() against
+ * the running working array — the same union-or-append logic used by the brush
+ * and magic-wand tools.  This means:
+ *   • Incoming gaps that overlap existing gaps are unioned with them.
+ *   • Incoming gaps that don't overlap anything are appended as new gaps.
+ *   • Existing gaps untouched by any incoming gap are preserved as-is.
+ *
+ * If existingGaps is empty the function simply converts all incomingGaps to
+ * Gap objects and returns them (fast path, no turf work needed).
+ */
+export function mergeIncomingGaps(
+  existingGaps: Gap[],
+  incomingGaps: Gap[],
+  imgW: number,
+  imgH: number,
+): Gap[] {
+  // Fast path: nothing pre-existing — just return incoming converted to pixels
+  if (existingGaps.length === 0) {
+    return incomingGaps.map(g => {
+      try {
+        return turfPolygonToGap(gapToTurfPolygon(g, imgW, imgH), imgW, imgH);
+      } catch {
+        return g;
+      }
+    });
+  }
+
+  let working: Gap[] = [...existingGaps];
+
+  for (const incomingGap of incomingGaps) {
+    let incomingPoly: Feature<Polygon>;
+    try {
+      incomingPoly = gapToTurfPolygon(incomingGap, imgW, imgH);
+    } catch {
+      // Degenerate geometry — keep as-is without merging
+      working.push(incomingGap);
+      continue;
+    }
+    working = applyPolygon(working, incomingPoly, imgW, imgH);
+  }
+
+  return working;
+}
+
 // ─── Split operation ────────────────────────────────────────────────────────
 
 /**

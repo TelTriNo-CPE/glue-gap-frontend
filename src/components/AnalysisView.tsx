@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { saveAnalysisGaps } from '../api';
+import { mergeIncomingGaps } from '../utils/turfBridge';
 import type { AnalysisResult, ClickMode, DetectionVersion, Gap } from '../types';
 import useGapHistory from '../hooks/useGapHistory';
 import Toolbar from './Toolbar';
@@ -62,6 +63,10 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [fillColor, setFillColor] = useState(DEFAULT_FILL_COLOR);
   const [selectedColor, setSelectedColor] = useState(DEFAULT_SELECTED_COLOR);
   const previousModeRef = useRef<ClickMode | null>(null);
+  // Holds the pre-detection and merged gaps so we can push them onto the
+  // undo stack AFTER useGapHistory resets (see the flush useEffect below).
+  const pendingMergeRef = useRef<{ existingGaps: Gap[]; mergedGaps: Gap[] } | null>(null);
+
   const {
     present,
     hasEdits,
@@ -446,6 +451,28 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [canRedo, canUndo, handleRedo, handleUndo, isSaving]);
 
+  // ── Merge-commit flush ──────────────────────────────────────────────────────
+  // When auto-detection runs while manual gaps already exist, handleDetect
+  // stores a pendingMergeRef instead of calling resetGapEdits().  We flush it
+  // HERE — AFTER useGapHistory's own reset useEffect has already cleared the
+  // stack (React runs useEffects in declaration order, and useGapHistory is
+  // declared earlier in this component).  Two sequential commitGapEdits calls
+  // build the undo chain:  r.gaps (base) → existingGaps → mergedGaps (present)
+  // so Ctrl+Z steps back through: merged → pre-detection manual gaps → auto-only.
+  useEffect(() => {
+    const pending = pendingMergeRef.current;
+    if (!pending) return;
+    pendingMergeRef.current = null;
+
+    commitGapEdits(pending.existingGaps); // becomes past[0] after base reset
+    commitGapEdits(pending.mergedGaps);   // becomes present
+
+    const n = pending.existingGaps.length;
+    setInfoToast(
+      `Auto-detection merged with ${n} existing gap${n === 1 ? '' : 's'} — press Ctrl+Z to undo`,
+    );
+  }, [activeVersionId, commitGapEdits]);
+
   async function handleSaveEdits() {
     if (!present || isSaving) return;
 
@@ -539,16 +566,40 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
       await new Promise<void>(res => setTimeout(res, 32));
 
       const r: AnalysisResult = JSON.parse(raw);
+
+      // Capture the current gaps BEFORE we change any state.
+      // displayGaps reflects manual edits that may have been made before
+      // auto-detection was run.
+      const existingGaps = displayGaps;
+
       const newVersion: DetectionVersion = {
         id: crypto.randomUUID(),
         versionNumber: detectionHistory.length + 1,
         timestamp: new Date(),
         params: { sensitivity, minArea },
+        // Always store the raw auto-detected result as the version baseline so
+        // that the "Re-run Detection" workflow stays predictable.
         result: r,
       };
       setDetectionHistory(prev => [...prev, newVersion]);
       setActiveVersionId(newVersion.id);
-      resetGapEdits();
+
+      if (existingGaps.length > 0) {
+        // There are pre-existing (manual) gaps.  Schedule a merge commit to run
+        // AFTER useGapHistory resets its stack (see the flush useEffect below).
+        const mergedGaps = mergeIncomingGaps(
+          existingGaps,
+          r.gaps,
+          r.image_size.width,
+          r.image_size.height,
+        );
+        pendingMergeRef.current = { existingGaps, mergedGaps };
+        // Do NOT call resetGapEdits() here — the flush effect handles the stack.
+      } else {
+        // No pre-existing gaps: standard flow — history resets to auto results.
+        resetGapEdits();
+      }
+
       clearGapInteractionState();
       setVisibleGapIdsInViewport(new Set());
     } catch (err: unknown) {
