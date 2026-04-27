@@ -333,14 +333,12 @@ export default function Toolbar({
         <div className="flex flex-row gap-2 w-full">
           <button
             onClick={onSelectAll}
-            disabled={!hasResult}
             className="flex-1 rounded-lg bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Select All
           </button>
           <button
             onClick={onDeselectAll}
-            disabled={!hasResult}
             className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-3 py-2.5 text-xs font-semibold text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Deselect All
@@ -350,7 +348,7 @@ export default function Toolbar({
           <button
             type="button"
             onClick={onUndo}
-            disabled={!hasResult || !canUndo || isSaving}
+            disabled={!canUndo || isSaving}
             className={historyBtnClass}
             title="Undo (Ctrl/Cmd+Z)"
             aria-label="Undo the last gap edit"
@@ -360,7 +358,7 @@ export default function Toolbar({
           <button
             type="button"
             onClick={onRedo}
-            disabled={!hasResult || !canRedo || isSaving}
+            disabled={!canRedo || isSaving}
             className={historyBtnClass}
             title="Redo (Ctrl/Cmd+Shift+Z or Ctrl+Y)"
             aria-label="Redo the last undone gap edit"

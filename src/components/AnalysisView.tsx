@@ -447,23 +447,36 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   }, [canRedo, canUndo, handleRedo, handleUndo, isSaving]);
 
   async function handleSaveEdits() {
-    if (!result || !present || isSaving) return;
+    if (!present || isSaving) return;
 
     setIsSaving(true);
 
     try {
       const updatedResult = await saveAnalysisGaps(analysisStem, present);
 
-      setDetectionHistory(prev =>
-        prev.map(version =>
-          version.id === activeVersionId
-            ? {
-                ...version,
-                result: updatedResult,
-              }
-            : version,
-        ),
-      );
+      if (activeVersionId) {
+        setDetectionHistory(prev =>
+          prev.map(version =>
+            version.id === activeVersionId
+              ? {
+                  ...version,
+                  result: updatedResult,
+                }
+              : version,
+          ),
+        );
+      } else {
+        // No detection run yet, create a "version 1" from manual edits
+        const newVersion: DetectionVersion = {
+          id: crypto.randomUUID(),
+          versionNumber: 1,
+          timestamp: new Date(),
+          params: { sensitivity, minArea },
+          result: updatedResult,
+        };
+        setDetectionHistory([newVersion]);
+        setActiveVersionId(newVersion.id);
+      }
 
       resetGapEdits();
       clearGapInteractionState();
