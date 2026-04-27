@@ -246,6 +246,15 @@ export default function Toolbar({
           <div className="flex flex-col gap-1 w-full px-1">
             <div className="flex justify-between items-center">
               <span className="text-[11px] text-gray-400">Tolerance</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onWandToleranceChange(32)}
+                  className="text-[10px] font-bold text-purple-400 hover:text-purple-300 uppercase tracking-tight transition-colors"
+                  title="Reset tolerance to default (32)"
+                >
+                  Reset
+                </button>
               <input
                 type="number"
                 min={0}
@@ -258,6 +267,7 @@ export default function Toolbar({
                 className="w-16 text-right text-[11px] font-mono bg-gray-800 border border-gray-700
                            text-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:border-purple-500"
               />
+              </div>
             </div>
             <input
               type="range"
