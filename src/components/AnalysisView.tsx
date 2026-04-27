@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { detectPartialGaps, saveAnalysisGaps } from '../api';
 import { applyPolygon, gapToTurfPolygon, mergeIncomingGaps } from '../utils/turfBridge';
-import type { AnalysisResult, BoundingBox, ClickMode, DetectionVersion, Gap } from '../types';
+import type { AnalysisResult, BoundingBox, ClickMode, DetectionVersion, Gap, SelectionMode } from '../types';
 import useGapHistory from '../hooks/useGapHistory';
 import Toolbar from './Toolbar';
 import OsdViewer from './OsdViewer';
