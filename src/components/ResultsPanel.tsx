@@ -27,7 +27,7 @@ interface Props {
 }
 
 export default function ResultsPanel({ width = 320, result, gaps, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, detectionHistory, activeVersionId, onSwitchVersion, onDeleteVersion }: Props) {
-  const allHidden = result ? hiddenGapIndices.size === gaps.length : false;
+  const allHidden = gaps.length > 0 ? hiddenGapIndices.size === gaps.length : false;
   
   const [topSectionHeight, setTopSectionHeight] = useState(350);
   const [isDragging, setIsDragging] = useState(false);
@@ -66,7 +66,6 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
   }, [selectedGapIds.size, activeTab]);
 
   const displayIndices = useMemo(() => {
-    if (!result) return [];
     if (activeTab === 'selected') {
       // Filter out stale indices that exceed the current gaps array length
       return Array.from(selectedGapIds).filter(i => i < gaps.length).sort((a, b) => a - b);
@@ -74,24 +73,23 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
     const all = gaps.map((_, i) => i);
     if (!isSyncViewport) return all;
     return all.filter(i => visibleGapIdsInViewport.has(i));
-  }, [result, gaps, isSyncViewport, visibleGapIdsInViewport, activeTab, selectedGapIds]);
+  }, [gaps, isSyncViewport, visibleGapIdsInViewport, activeTab, selectedGapIds]);
 
-  const totalDisplayedAreaUm = useMemo(() => {
-    if (!result) return 0;
-    return displayIndices.reduce((sum, i) => sum + (gaps[i]?.area_px ?? 0), 0) * AREA_FACTOR;
-  }, [displayIndices, result, gaps]);
+  const totalDisplayedAreaUm = useMemo(
+    () => displayIndices.reduce((sum, i) => sum + (gaps[i]?.area_px ?? 0), 0) * AREA_FACTOR,
+    [displayIndices, gaps],
+  );
 
   const selectedAreaUm = useMemo(() => {
-    if (!result) return 0;
     let sum = 0;
     for (const i of selectedGapIds) sum += gaps[i]?.area_px ?? 0;
     return sum * AREA_FACTOR;
-  }, [selectedGapIds, result, gaps]);
+  }, [selectedGapIds, gaps]);
 
-  const totalAbsoluteAreaUm = useMemo(() => {
-    if (!result) return 0;
-    return gaps.reduce((sum, g) => sum + g.area_px, 0) * AREA_FACTOR;
-  }, [result, gaps]);
+  const totalAbsoluteAreaUm = useMemo(
+    () => gaps.reduce((sum, g) => sum + g.area_px, 0) * AREA_FACTOR,
+    [gaps],
+  );
 
   return (
     <aside 
@@ -100,7 +98,7 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
     >
       <div className="p-4 border-b border-gray-100 flex items-center justify-between shrink-0">
         <h2 className="text-sm font-semibold text-gray-800 uppercase tracking-wide">Analysis</h2>
-        {result && (
+        {gaps.length > 0 && (
           <button
             onClick={() => allHidden ? onShowAllGaps() : onHideAllGaps()}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all
@@ -115,7 +113,7 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
         )}
       </div>
 
-      {result ? (
+      {gaps.length > 0 ? (
         <>
           <div 
             style={{ height: topSectionHeight }}
@@ -164,12 +162,14 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
                       {gaps.length.toLocaleString()}
                     </dd>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <dt className="text-gray-600">Image Size</dt>
-                    <dd className="font-medium text-gray-900">
-                      {result.image_size.width} × {result.image_size.height}
-                    </dd>
-                  </div>
+                  {result && (
+                    <div className="flex justify-between text-sm">
+                      <dt className="text-gray-600">Image Size</dt>
+                      <dd className="font-medium text-gray-900">
+                        {result.image_size.width} × {result.image_size.height}
+                      </dd>
+                    </div>
+                  )}
                   <div className="border-t border-gray-100 my-1" />
                   <div className="flex justify-between text-xs font-mono">
                     <dt className="text-gray-500">Listed Area</dt>
@@ -186,7 +186,7 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
                 </dl>
               </section>
 
-              {result.radius_stats && (
+              {result?.radius_stats && (
                 <section>
                   <h3 className="text-xs font-semibold text-gray-500 uppercase mb-3">
                     Radius Statistics (px)
@@ -266,9 +266,10 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
                   d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21a48.25 48.25 0 01-8.135-.687c-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
               </svg>
               <div>
-                <p className="text-lg font-medium text-gray-700">Waiting for analysis</p>
-                <p className="text-[11px] text-gray-400 mt-2">
-                  Click "Switch to Greyscale" in the toolbar to begin
+                <p className="text-lg font-medium text-gray-700">No gaps detected yet</p>
+                <p className="text-[11px] text-gray-400 mt-2 max-w-[200px]">
+                  Click &ldquo;Start Detection&rdquo; for auto-analysis, or use the manual tools
+                  (Wand, Brush) on the left to start creating gaps yourself.
                 </p>
               </div>
             </>
