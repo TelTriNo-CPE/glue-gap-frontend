@@ -35,4 +35,11 @@ export interface DetectionVersion {
   result: AnalysisResult;
 }
 
-export type ClickMode = 'select' | 'deselect' | 'pan' | 'brush' | 'eraser' | 'split' | 'magic-wand';
+export type ClickMode = 'select' | 'deselect' | 'pan' | 'brush' | 'eraser' | 'split' | 'magic-wand' | 'object-select';
+
+export interface BoundingBox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}

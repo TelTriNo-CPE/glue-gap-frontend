@@ -241,6 +241,16 @@ export default function Toolbar({
             <WandIcon />
             Wand
           </button>
+          <button
+            onClick={() => setClickMode('object-select')}
+            className={`flex-1 min-w-[4.5rem] flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+              clickMode === 'object-select' ? 'bg-teal-600 text-white shadow-inner' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}
+            title="Object Select — drag a bounding box over a region to run AI detection inside it"
+          >
+            <ObjectSelectIcon />
+            Scan
+          </button>
         </div>
       </div>
 
@@ -745,6 +755,16 @@ function TrashIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="m14.74 9-.342 10.822m-5.512 0L8.54 9m4.836-9.178a.75.75 0 0 1 .197.89l-.11.228m-2.203-1.118a.75.75 0 0 0-.197.89l.11.228M3.75 5.25h16.5m-14.25 0v13.5A2.25 2.25 0 0 0 8.25 21h7.5a2.25 2.25 0 0 0 2.25-2.25V5.25m-12 0V3.75A2.25 2.25 0 0 1 10.5 1.5h3a2.25 2.25 0 0 1 2.25 2.25V5.25" />
+    </svg>
+  );
+}
+
+/** Object-select / scan icon — dashed rectangle with corner markers. */
+function ObjectSelectIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeDasharray="3 2"
+        d="M3 9V6a1 1 0 0 1 1-1h3M3 15v3a1 1 0 0 0 1 1h3m11-1h3a1 1 0 0 0 1-1v-3m0-6V6a1 1 0 0 0-1-1h-3" />
     </svg>
   );
 }

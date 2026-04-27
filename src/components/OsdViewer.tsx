@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import OpenSeadragon from 'openseadragon';
 import { getDziUrl } from '../api';
-import type { Gap, ClickMode } from '../types';
+import type { BoundingBox, Gap, ClickMode } from '../types';
 import { applyBrush, applyEraser, applySplit, applyPolygon } from '../utils/turfBridge';
 import { executeMagicWand } from '../utils/magicWand';
 
@@ -27,6 +27,7 @@ interface Props {
   imageSize: { width: number; height: number } | null;
   wandTolerance: number;
   onInfoToast?: (message: string) => void;
+  onObjectSelectBbox?: (bbox: BoundingBox) => void;
 }
 
 // ─── Drawing constants ────────────────────────────────────────────────────────
@@ -99,7 +100,7 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, selectedColor, brushSize, onGapsModified, imageSize, wandTolerance, onInfoToast }: Props) {
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, selectedColor, brushSize, onGapsModified, imageSize, wandTolerance, onInfoToast, onObjectSelectBbox }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -136,6 +137,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const imageSizeRef = useRef(imageSize);
   const wandToleranceRef = useRef(wandTolerance);
   const onInfoToastRef = useRef(onInfoToast);
+  const onObjectSelectBboxRef = useRef(onObjectSelectBbox);
 
   useEffect(() => { gapsRef.current = gaps; }, [gaps]);
   useEffect(() => { hiddenRef.current = hiddenGapIndices; }, [hiddenGapIndices]);
@@ -150,6 +152,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   useEffect(() => { imageSizeRef.current = imageSize; }, [imageSize]);
   useEffect(() => { wandToleranceRef.current = wandTolerance; }, [wandTolerance]);
   useEffect(() => { onInfoToastRef.current = onInfoToast; }, [onInfoToast]);
+  useEffect(() => { onObjectSelectBboxRef.current = onObjectSelectBbox; }, [onObjectSelectBbox]);
   useEffect(() => { fillColorRef.current = fillColor; }, [fillColor]);
   useEffect(() => { selectedColorRef.current = selectedColor; }, [selectedColor]);
 
@@ -598,8 +601,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
 
       const currentClickMode = clickModeRef.current;
       if (currentClickMode === 'pan') return;
-      // Brush/eraser/split handled by canvas-press/drag/release
-      if (currentClickMode === 'brush' || currentClickMode === 'eraser' || currentClickMode === 'split') {
+      // Brush/eraser/split/object-select handled by canvas-press/drag/release
+      if (currentClickMode === 'brush' || currentClickMode === 'eraser' || currentClickMode === 'split' || currentClickMode === 'object-select') {
         event.preventDefaultAction = true;
         return;
       }
@@ -844,7 +847,10 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       const rw = Math.abs(endPx.x - startPx.x);
       const rh = Math.abs(endPx.y - startPx.y);
 
-      if (mode === 'select') {
+      if (mode === 'object-select') {
+        ctx.fillStyle = 'rgba(20, 184, 166, 0.2)';
+        ctx.strokeStyle = 'rgba(20, 184, 166, 1)';
+      } else if (mode === 'select') {
         ctx.fillStyle = 'rgba(59, 130, 246, 0.2)';
         ctx.strokeStyle = 'rgba(59, 130, 246, 1)';
       } else {
@@ -934,6 +940,18 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       const endPx = v.viewport.pixelFromPoint(endVp, true);
       const screenDist = Math.hypot(endPx.x - startPx.x, endPx.y - startPx.y);
       if (screenDist < 5) return;
+
+      // Object Select — emit bbox to parent and let AnalysisView call the API
+      if (mode === 'object-select') {
+        const x = Math.round(Math.min(startImg.x, currentImg.x));
+        const y = Math.round(Math.min(startImg.y, currentImg.y));
+        const width = Math.round(Math.abs(currentImg.x - startImg.x));
+        const height = Math.round(Math.abs(currentImg.y - startImg.y));
+        if (width > 0 && height > 0) {
+          onObjectSelectBboxRef.current?.({ x, y, width, height });
+        }
+        return;
+      }
 
       // Bounding box in image coordinates
       const minX = Math.min(startImg.x, currentImg.x);
@@ -1073,6 +1091,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       canvas.style.cursor = 'none';
     } else if (clickMode === 'magic-wand') {
       canvas.style.cursor = 'cell';
+    } else if (clickMode === 'object-select') {
+      canvas.style.cursor = 'crosshair';
     } else {
       canvas.style.cursor = 'crosshair';
     }

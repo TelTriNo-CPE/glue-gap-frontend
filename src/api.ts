@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { AnalysisResult, Gap } from './types';
+import type { AnalysisResult, BoundingBox, Gap } from './types';
 
 export async function analyzeGaps(key: string): Promise<AnalysisResult> {
   const { data } = await axios.post<AnalysisResult>('/analyze-gaps', { key });
@@ -29,6 +29,21 @@ export async function downloadJpeg(key: string, stem: string) {
   a.href = data.url;
   a.download = `${stem}-annotated.jpg`;
   a.click();
+}
+
+export async function detectPartialGaps(
+  key: string,
+  bbox: BoundingBox,
+  sensitivity = 50,
+  minArea = 20,
+): Promise<AnalysisResult> {
+  const { data } = await axios.post<AnalysisResult>('/analyze-gaps', {
+    key,
+    sensitivity,
+    min_area: minArea,
+    bbox,
+  });
+  return data;
 }
 
 export async function saveAnalysisGaps(stem: string, gaps: Gap[]): Promise<AnalysisResult> {

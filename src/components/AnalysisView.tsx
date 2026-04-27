@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import axios from 'axios';
-import { saveAnalysisGaps } from '../api';
-import { mergeIncomingGaps } from '../utils/turfBridge';
-import type { AnalysisResult, ClickMode, DetectionVersion, Gap } from '../types';
+import { detectPartialGaps, saveAnalysisGaps } from '../api';
+import { applyPolygon, gapToTurfPolygon, mergeIncomingGaps } from '../utils/turfBridge';
+import type { AnalysisResult, BoundingBox, ClickMode, DetectionVersion, Gap } from '../types';
 import useGapHistory from '../hooks/useGapHistory';
 import Toolbar from './Toolbar';
 import OsdViewer from './OsdViewer';
@@ -633,6 +633,33 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     }
   }
 
+  const handleObjectSelectBbox = useCallback(async (bbox: BoundingBox) => {
+    setInfoToast('Analysing region…');
+    try {
+      const r = await detectPartialGaps(fileKey, bbox, sensitivity, minArea);
+      const imgW = r.image_size.width;
+      const imgH = r.image_size.height;
+
+      // Merge each returned gap as 'manual' into the current working set
+      let mergedGaps = [...displayGaps];
+      for (const gap of r.gaps) {
+        try {
+          const poly = gapToTurfPolygon(gap, imgW, imgH);
+          mergedGaps = applyPolygon(mergedGaps, poly, imgW, imgH, 'manual');
+        } catch {
+          mergedGaps = [...mergedGaps, { ...gap, source: 'manual' as const }];
+        }
+      }
+
+      handleGapsModified(mergedGaps);
+      const n = r.gap_count;
+      setInfoToast(`Found ${n} gap${n === 1 ? '' : 's'} in selected region`);
+    } catch (err: unknown) {
+      setInfoToast(null);
+      setToast(extractErrorMessage(err));
+    }
+  }, [fileKey, sensitivity, minArea, displayGaps, handleGapsModified]);
+
   const overlayVisible = analyzing || parsing;
   const mobileLeftPanelWidth = Math.min(leftWidth, 320);
   const mobileRightPanelWidth = Math.min(rightWidth, 360);
@@ -898,6 +925,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
               imageSize={result?.image_size ?? null}
               wandTolerance={wandTolerance}
               onInfoToast={setInfoToast}
+              onObjectSelectBbox={handleObjectSelectBbox}
             />
           </div>
         </div>
