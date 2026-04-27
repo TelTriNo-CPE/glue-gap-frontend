@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import OpenSeadragon from 'openseadragon';
 import { getDziUrl } from '../api';
 import type { Gap, ClickMode } from '../types';
-import { applyBrush, applyEraser, applySplit } from '../utils/turfBridge';
+import { applyBrush, applyEraser, applySplit, applyPolygon } from '../utils/turfBridge';
+import { executeMagicWand } from '../utils/magicWand';
 
 interface Props {
   stem: string;
@@ -24,6 +25,8 @@ interface Props {
   brushSize: number;
   onGapsModified?: (newGaps: Gap[]) => void;
   imageSize: { width: number; height: number } | null;
+  wandTolerance: number;
+  onInfoToast?: (message: string) => void;
 }
 
 // ─── Drawing constants ────────────────────────────────────────────────────────
@@ -96,7 +99,7 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, selectedColor, brushSize, onGapsModified, imageSize }: Props) {
+export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, selectedColor, brushSize, onGapsModified, imageSize, wandTolerance, onInfoToast }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -131,6 +134,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   const brushSizeRef = useRef(brushSize);
   const onGapsModifiedRef = useRef(onGapsModified);
   const imageSizeRef = useRef(imageSize);
+  const wandToleranceRef = useRef(wandTolerance);
+  const onInfoToastRef = useRef(onInfoToast);
 
   useEffect(() => { gapsRef.current = gaps; }, [gaps]);
   useEffect(() => { hiddenRef.current = hiddenGapIndices; }, [hiddenGapIndices]);
@@ -143,6 +148,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
   useEffect(() => { brushSizeRef.current = brushSize; }, [brushSize]);
   useEffect(() => { onGapsModifiedRef.current = onGapsModified; }, [onGapsModified]);
   useEffect(() => { imageSizeRef.current = imageSize; }, [imageSize]);
+  useEffect(() => { wandToleranceRef.current = wandTolerance; }, [wandTolerance]);
+  useEffect(() => { onInfoToastRef.current = onInfoToast; }, [onInfoToast]);
   useEffect(() => { fillColorRef.current = fillColor; }, [fillColor]);
   useEffect(() => { selectedColorRef.current = selectedColor; }, [selectedColor]);
 
@@ -449,7 +456,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         }
         return;
       }
-      if (mode !== 'brush' && mode !== 'eraser') {
+      if (mode === 'magic-wand' || (mode !== 'brush' && mode !== 'eraser')) {
         const ctx = bCanvas.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
         return;
@@ -579,6 +586,25 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         return;
       }
 
+      // ── Magic Wand ──────────────────────────────────────────────────────
+      if (currentClickMode === 'magic-wand') {
+        event.preventDefaultAction = true;
+        const v = viewerRef.current;
+        const size = imageSizeRef.current;
+        if (!size) return;
+
+        const polygon = executeMagicWand(v, event.position, wandToleranceRef.current);
+        if (!polygon) return;
+
+        const currentGaps = gapsRef.current;
+        const newGaps = applyPolygon(currentGaps, polygon, size.width, size.height);
+        gapsRef.current = newGaps;
+        onGapsModifiedRef.current?.(newGaps);
+        onInfoToastRef.current?.('Magic Wand applied');
+        scheduleFullRedraw();
+        return;
+      }
+
       const viewportPoint = viewerRef.current.viewport.pointFromPixel(event.position, true);
       const tiledImage = viewerRef.current.world.getItemAt(0);
       if (!tiledImage) return;
@@ -625,6 +651,12 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
     viewer.addHandler('canvas-press', function(event: any) {
       const mode = clickModeRef.current;
       if (mode === 'pan') return;
+
+      // Magic-wand is handled entirely in canvas-click — prevent OSD panning here
+      if (mode === 'magic-wand') {
+        event.preventDefaultAction = true;
+        return;
+      }
 
       if (!viewerRef.current || !viewerRef.current.isOpen()) return;
       const tiledImage = viewerRef.current.world.getItemAt(0);
@@ -1018,8 +1050,8 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       canvas.style.cursor = 'grab';
     } else if (clickMode === 'brush' || clickMode === 'eraser') {
       canvas.style.cursor = 'none';
-    } else if (clickMode === 'split') {
-      canvas.style.cursor = 'crosshair';
+    } else if (clickMode === 'magic-wand') {
+      canvas.style.cursor = 'cell';
     } else {
       canvas.style.cursor = 'crosshair';
     }

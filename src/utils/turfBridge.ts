@@ -220,6 +220,66 @@ export function applyEraser(
   return result;
 }
 
+// ─── Magic Wand polygon union ────────────────────────────────────────────────
+
+/**
+ * Union a pre-computed polygon (e.g. from the magic wand tool) into the gap list.
+ *
+ * Behaviour:
+ *  - If the polygon overlaps one or more existing gaps they are all merged into
+ *    a single gap (same union logic as applyBrush).
+ *  - If the polygon does not overlap any existing gap it is appended as a brand
+ *    new gap.
+ */
+export function applyPolygon(
+  gaps: Gap[],
+  polygon: Feature<Polygon>,
+  imgW: number,
+  imgH: number,
+): Gap[] {
+  const overlappingIndices: number[] = [];
+  const turfGaps: Feature<Polygon>[] = [];
+
+  for (let i = 0; i < gaps.length; i++) {
+    const tg = gapToTurfPolygon(gaps[i], imgW, imgH);
+    turfGaps.push(tg);
+    try {
+      if (turf.booleanIntersects(tg, polygon)) {
+        overlappingIndices.push(i);
+      }
+    } catch {
+      // Skip gaps that fail the intersection test
+    }
+  }
+
+  if (overlappingIndices.length === 0) {
+    // No overlap — add as a new independent gap
+    return [...gaps, turfPolygonToGap(polygon, imgW, imgH)];
+  }
+
+  // Union the magic-wand polygon with all overlapping gaps
+  let merged: Feature<Polygon | MultiPolygon> = polygon;
+  for (const idx of overlappingIndices) {
+    try {
+      const result = turf.union(
+        turf.featureCollection([merged as Feature<Polygon>, turfGaps[idx]]),
+      );
+      if (result) merged = result as Feature<Polygon | MultiPolygon>;
+    } catch {
+      // Skip failed union step
+    }
+  }
+
+  // Rebuild gap array: keep non-overlapping gaps, add merged result
+  const overlappingSet = new Set(overlappingIndices);
+  const result: Gap[] = [];
+  for (let i = 0; i < gaps.length; i++) {
+    if (!overlappingSet.has(i)) result.push(gaps[i]);
+  }
+  result.push(...extractPolygons(merged, imgW, imgH));
+  return result;
+}
+
 // ─── Split operation ────────────────────────────────────────────────────────
 
 /**

@@ -55,6 +55,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [visibleGapIdsInViewport, setVisibleGapIdsInViewport] = useState<Set<number>>(new Set());
   const [sensitivity,  setSensitivity]  = useState(50);
   const [minArea,      setMinArea]      = useState(20);
+  const [wandTolerance, setWandTolerance] = useState(32);
   const [showMinimap,  setShowMinimap]  = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [outlineColor, setOutlineColor] = useState(DEFAULT_OUTLINE_COLOR);
@@ -302,15 +303,18 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     const newCount = newGaps.length;
 
     // Show contextual info toast when gap count changes
-    if (newCount < oldCount) {
-      const diff = oldCount - newCount;
-      if (clickMode === 'brush') {
-        setInfoToast(diff === 1 ? 'Gaps merged' : `${diff + 1} gaps merged`);
-      } else {
-        setInfoToast(diff === 1 ? 'Gap deleted' : `${diff} gaps deleted`);
+    // Note: magic-wand fires its own toast via onInfoToast, so skip here.
+    if (clickMode !== 'magic-wand') {
+      if (newCount < oldCount) {
+        const diff = oldCount - newCount;
+        if (clickMode === 'brush') {
+          setInfoToast(diff === 1 ? 'Gaps merged' : `${diff + 1} gaps merged`);
+        } else {
+          setInfoToast(diff === 1 ? 'Gap deleted' : `${diff} gaps deleted`);
+        }
+      } else if (newCount > oldCount) {
+        setInfoToast('Gap split into multiple pieces');
       }
-    } else if (newCount > oldCount) {
-      setInfoToast('Gap split into multiple pieces');
     }
 
     // Clamp selection & hidden to valid indices instead of clearing
@@ -656,6 +660,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             onFillColorChange={setFillColor}
             onSelectedColorChange={setSelectedColor}
             onResetColors={resetAppearanceColors}
+            wandTolerance={wandTolerance}
+            onWandToleranceChange={setWandTolerance}
           />
         </div>
 
@@ -764,6 +770,8 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
               brushSize={brushSize}
               onGapsModified={handleGapsModified}
               imageSize={result?.image_size ?? null}
+              wandTolerance={wandTolerance}
+              onInfoToast={setInfoToast}
             />
           </div>
         </div>
