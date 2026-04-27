@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import OpenSeadragon from 'openseadragon';
 import * as turf from '@turf/turf';
 import { getDziUrl } from '../api';
-import type { BoundingBox, Gap, ClickMode } from '../types';
+import type { BoundingBox, Gap, ClickMode, SelectionMode } from '../types';
 import { applyBrush, applyEraser, applySplit, applyPolygon } from '../utils/turfBridge';
 import { executeMagicWand } from '../utils/magicWand';
 
