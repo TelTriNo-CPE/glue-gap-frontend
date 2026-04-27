@@ -1,10 +1,10 @@
 import { useRef, useEffect, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { AnalysisResult, DetectionVersion, Gap } from '../types';
-import RadiusStatsPanel from './RadiusChart';
 
 // ─── Calibration constants ────────────────────────────────────────────────────
 const AREA_FACTOR = 0.871076; // µm² per px²
+const LENGTH_FACTOR = 0.9333146; // µm per px
 
 interface Props {
   width?: number;
@@ -90,6 +90,24 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
     () => gaps.reduce((sum, g) => sum + g.area_px, 0) * AREA_FACTOR,
     [gaps],
   );
+
+  const dynamicRadiusStats = useMemo(() => {
+    if (displayIndices.length === 0) return null;
+    let min = Infinity;
+    let max = -Infinity;
+    let sum = 0;
+    for (const i of displayIndices) {
+      const r = gaps[i]?.equiv_radius_px ?? 0;
+      if (r < min) min = r;
+      if (r > max) max = r;
+      sum += r;
+    }
+    return {
+      min,
+      max,
+      avg: sum / displayIndices.length,
+    };
+  }, [displayIndices, gaps]);
 
   return (
     <aside 
@@ -186,12 +204,31 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
                 </dl>
               </section>
 
-              {result?.radius_stats && (
+              {dynamicRadiusStats && (
                 <section>
                   <h3 className="text-xs font-semibold text-gray-500 uppercase mb-3">
                     Radius Statistics
                   </h3>
-                  <RadiusStatsPanel stats={result.radius_stats} />
+                  <dl className="flex flex-col gap-2">
+                    <div className="flex justify-between text-sm">
+                      <dt className="text-gray-600">Average Radius</dt>
+                      <dd className="font-medium text-gray-900">
+                        {dynamicRadiusStats.avg.toFixed(2)} px <span className="text-gray-400 font-normal">({(dynamicRadiusStats.avg * LENGTH_FACTOR).toFixed(2)} µm)</span>
+                      </dd>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <dt className="text-gray-600">Min Radius</dt>
+                      <dd className="font-medium text-gray-900">
+                        {dynamicRadiusStats.min.toFixed(2)} px <span className="text-gray-400 font-normal">({(dynamicRadiusStats.min * LENGTH_FACTOR).toFixed(2)} µm)</span>
+                      </dd>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <dt className="text-gray-600">Max Radius</dt>
+                      <dd className="font-medium text-gray-900">
+                        {dynamicRadiusStats.max.toFixed(2)} px <span className="text-gray-400 font-normal">({(dynamicRadiusStats.max * LENGTH_FACTOR).toFixed(2)} µm)</span>
+                      </dd>
+                    </div>
+                  </dl>
                 </section>
               )}
             </div>
