@@ -61,6 +61,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [outlineColor, setOutlineColor] = useState(DEFAULT_OUTLINE_COLOR);
   const [fillColor, setFillColor] = useState(DEFAULT_FILL_COLOR);
   const [selectedColor, setSelectedColor] = useState(DEFAULT_SELECTED_COLOR);
+  const previousModeRef = useRef<ClickMode | null>(null);
   const {
     present,
     hasEdits,
@@ -373,6 +374,45 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
     resetGapEdits();
     clearGapInteractionState();
   }, [clearGapInteractionState, resetGapEdits]);
+
+  // Temporary 'pan' mode override while holding Shift
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || isEditableTarget(e.target)) return;
+
+      if (e.key === 'Shift' && !previousModeRef.current && clickMode !== 'pan') {
+        previousModeRef.current = clickMode;
+        setClickMode('pan');
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift' && previousModeRef.current) {
+        if (clickMode === 'pan') {
+          setClickMode(previousModeRef.current);
+        }
+        previousModeRef.current = null;
+      }
+    };
+
+    const handleBlur = () => {
+      if (previousModeRef.current) {
+        if (clickMode === 'pan') {
+          setClickMode(previousModeRef.current);
+        }
+        previousModeRef.current = null;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [clickMode]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
