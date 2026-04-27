@@ -462,7 +462,17 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       const bCanvas = brushCursorCanvasRef.current;
       if (!bCanvas) return;
       const mode = clickModeRef.current;
-      
+
+      const v = viewerRef.current;
+      if (!v || !v.isOpen()) return;
+
+      const w = osdCanvasEl.clientWidth;
+      const h = osdCanvasEl.clientHeight;
+      if (bCanvas.width !== w || bCanvas.height !== h) {
+        bCanvas.width = w;
+        bCanvas.height = h;
+      }
+
       if (mode === 'split' || mode === 'lasso-freehand') {
         // Don't clear during a drag — canvas-drag draws the preview path
         if (!isPaintingRef.current) {
@@ -473,8 +483,6 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       }
 
       if (mode === 'lasso-polygon') {
-        const v = viewerRef.current;
-        if (!v || !v.isOpen()) return;
         const ctx = bCanvas.getContext('2d');
         if (!ctx) return;
         ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
@@ -485,8 +493,9 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         // Draw current committed lines + rubber band
         ctx.beginPath();
         const isSubtract = selectionModeRef.current === 'subtract';
-        ctx.strokeStyle = isSubtract ? 'rgba(239, 68, 68, 0.9)' : 'rgba(163, 230, 53, 0.9)'; // Red-500 or Lime-400
+        ctx.strokeStyle = isSubtract ? 'rgba(239, 68, 68, 1)' : 'rgba(59, 130, 246, 1)'; // Red-500 or Blue-500
         ctx.lineWidth = 2;
+        ctx.setLineDash([6, 3]);
 
         const startVp = v.viewport.imageToViewportCoordinates(new OpenSeadragon.Point(points[0].x, points[0].y));
         const startPx = v.viewport.pixelFromPoint(startVp, true);
@@ -501,16 +510,17 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         // Draw rubber band to mouse
         ctx.lineTo(screenX, screenY);
         ctx.stroke();
+        ctx.setLineDash([]);
 
         // Draw start point circle to indicate closure target
         ctx.beginPath();
         ctx.arc(startPx.x, startPx.y, 8, 0, 2 * Math.PI);
         const dist = Math.hypot(screenX - startPx.x, screenY - startPx.y);
         if (dist < 12 && points.length >= 3) {
-          ctx.fillStyle = isSubtract ? 'rgba(239, 68, 68, 0.6)' : 'rgba(163, 230, 53, 0.6)';
+          ctx.fillStyle = isSubtract ? 'rgba(239, 68, 68, 0.6)' : 'rgba(59, 130, 246, 0.6)';
           ctx.fill();
         }
-        ctx.strokeStyle = isSubtract ? 'rgba(239, 68, 68, 1)' : 'rgba(163, 230, 53, 1)';
+        ctx.strokeStyle = isSubtract ? 'rgba(239, 68, 68, 1)' : 'rgba(59, 130, 246, 1)';
         ctx.stroke();
         return;
       }
@@ -519,16 +529,6 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
         const ctx = bCanvas.getContext('2d');
         if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
         return;
-      }
-
-      const v = viewerRef.current;
-      if (!v || !v.isOpen()) return;
-
-      const w = osdCanvasEl.clientWidth;
-      const h = osdCanvasEl.clientHeight;
-      if (bCanvas.width !== w || bCanvas.height !== h) {
-        bCanvas.width = w;
-        bCanvas.height = h;
       }
 
       const ctx = bCanvas.getContext('2d');
@@ -926,8 +926,9 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
               ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
               ctx.beginPath();
               const isSubtract = selectionModeRef.current === 'subtract';
-              ctx.strokeStyle = isSubtract ? 'rgba(239, 68, 68, 0.9)' : 'rgba(163, 230, 53, 0.9)'; // Red-500 or Lime-400
+              ctx.strokeStyle = isSubtract ? 'rgba(239, 68, 68, 1)' : 'rgba(59, 130, 246, 1)'; // Red-500 or Blue-500
               ctx.lineWidth = 2;
+              ctx.setLineDash([6, 3]);
 
               const pts = freehandPointsRef.current;
               const startVp = v.viewport.imageToViewportCoordinates(new OpenSeadragon.Point(pts[0].x, pts[0].y));
@@ -940,6 +941,7 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
                 ctx.lineTo(px.x, px.y);
               }
               ctx.stroke();
+              ctx.setLineDash([]);
             }
           }
           event.preventDefaultAction = true;
