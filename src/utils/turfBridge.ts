@@ -92,6 +92,155 @@ export function createPixelCircle(cx: number, cy: number, radius: number, steps 
   return turf.polygon([ring]);
 }
 
+// ─── Geometry cleanup helpers ─────────────────────────────────────────────────
+
+/**
+ * Clean a polygon's coordinate rings to prepare for reliable boolean operations.
+ *
+ * AI-detected polygons (OpenCV contours) often contain:
+ *   • Duplicate consecutive vertices (from contour compression artifacts)
+ *   • Near-coincident floating-point values (sub-pixel noise)
+ *   • Occasional self-intersections (bow-ties, figure-8s)
+ *
+ * All of these silently break polygon-clipping's sweep-line algorithm.
+ *
+ * This function applies the "buffer 0" trick in pixel-space:
+ *   1. Round to 1 decimal place → eliminates sub-pixel float noise
+ *   2. Remove duplicate consecutive vertices
+ *   3. Self-union → for simple polygons, returns unchanged;
+ *      for self-intersecting polygons, splits into valid simple pieces
+ *
+ * Returns an array of clean simple polygon ring-sets (polygon-clipping.Polygon[]).
+ * Self-intersecting input may produce >1 output polygon.
+ */
+function cleanGapRings(rings: polygonClipping.Polygon): polygonClipping.Polygon[] {
+  // Step 1: Round to 1 decimal place to eliminate floating-point noise
+  const rounded: polygonClipping.Polygon = rings.map(ring =>
+    ring.map(([x, y]) => [
+      Math.round(x * 10) / 10,
+      Math.round(y * 10) / 10,
+    ] as [number, number])
+  );
+
+  // Step 2: Remove duplicate consecutive vertices within each ring
+  const deduped: polygonClipping.Polygon = rounded.map(ring => {
+    const out: [number, number][] = [];
+    for (const pt of ring) {
+      const prev = out.length > 0 ? out[out.length - 1] : null;
+      if (!prev || pt[0] !== prev[0] || pt[1] !== prev[1]) {
+        out.push(pt as [number, number]);
+      }
+    }
+    // Ensure ring closure
+    if (out.length > 0) {
+      const first = out[0];
+      const last = out[out.length - 1];
+      if (first[0] !== last[0] || first[1] !== last[1]) {
+        out.push([first[0], first[1]]);
+      }
+    }
+    return out;
+  });
+
+  // Step 3: Self-union — the "buffer 0" equivalent in polygon-clipping space.
+  // A simple polygon → returned unchanged (one polygon).
+  // A self-intersecting polygon → split into valid simple pieces (≥1 polygons).
+  try {
+    const selfUnioned = polygonClipping.union(deduped as any);
+    if (selfUnioned.length > 0) return selfUnioned;
+  } catch (err) {
+    console.warn('[turfBridge] cleanGapRings self-union failed:', err);
+  }
+
+  return [deduped]; // fallback: return deduplicated rings
+}
+
+/**
+ * Clean the eraser stroke union polygon: round coordinates and remove duplicates.
+ * The circles are already clean, but union junctions can have float artifacts.
+ */
+function cleanEraserRings(poly: polygonClipping.Polygon): polygonClipping.Polygon {
+  return poly.map(ring => {
+    const rounded = ring.map(([x, y]) => [
+      Math.round(x * 10) / 10,
+      Math.round(y * 10) / 10,
+    ] as [number, number]);
+    const out: [number, number][] = [];
+    for (const pt of rounded) {
+      const prev = out.length > 0 ? out[out.length - 1] : null;
+      if (!prev || pt[0] !== prev[0] || pt[1] !== prev[1]) {
+        out.push(pt);
+      }
+    }
+    if (out.length > 0) {
+      const first = out[0];
+      const last = out[out.length - 1];
+      if (first[0] !== last[0] || first[1] !== last[1]) {
+        out.push([first[0], first[1]]);
+      }
+    }
+    return out;
+  });
+}
+
+/**
+ * Simplify a stroke path so the union of circles stays manageable for long strokes.
+ * Ensures consecutive kept points are at least `minSpacing` apart.
+ * The first and last points are always preserved.
+ */
+function simplifyStrokePath(
+  points: { x: number; y: number }[],
+  minSpacing: number,
+): { x: number; y: number }[] {
+  if (points.length <= 2) return points;
+  const result: { x: number; y: number }[] = [points[0]];
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = result[result.length - 1];
+    if (Math.hypot(points[i].x - prev.x, points[i].y - prev.y) >= minSpacing) {
+      result.push(points[i]);
+    }
+  }
+  result.push(points[points.length - 1]);
+  return result;
+}
+
+/** AABB of a polygon-clipping MultiPolygon [minX, minY, maxX, maxY]. */
+function multiPolygonAabb(mp: polygonClipping.MultiPolygon): [number, number, number, number] {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const poly of mp) {
+    for (const ring of poly) {
+      for (const [x, y] of ring) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  return [minX, minY, maxX, maxY];
+}
+
+/** AABB of a polygon-clipping Polygon (Ring[]). */
+function polyAabb(rings: polygonClipping.Polygon): [number, number, number, number] {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const ring of rings) {
+    for (const [x, y] of ring) {
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+  }
+  return [minX, minY, maxX, maxY];
+}
+
+function aabbsOverlap(
+  [ax1, ay1, ax2, ay2]: [number, number, number, number],
+  [bx1, by1, bx2, by2]: [number, number, number, number],
+): boolean {
+  return ax1 <= bx2 && ax2 >= bx1 && ay1 <= by2 && ay2 >= by1;
+}
+
 // ─── Brush / Eraser operations ───────────────────────────────────────────────
 
 /**
@@ -167,6 +316,7 @@ export function applyBrush(
 /**
  * Apply an eraser stamp: subtract the circle from any overlapping gaps.
  * Fully erased gaps are removed. MultiPolygon results are split.
+ * (Legacy single-stamp version — prefer applyEraserStroke for full strokes.)
  */
 export function applyEraser(
   gaps: Gap[],
@@ -177,59 +327,13 @@ export function applyEraser(
   selectedIds: Set<number>,
   minArea = 4,
 ): Gap[] {
-  const circle = createPixelCircle(center.x, center.y, radius);
-  const result: Gap[] = [];
-  const hasSelection = selectedIds.size > 0;
-
-  for (let i = 0; i < gaps.length; i++) {
-    if (hasSelection && !selectedIds.has(i)) {
-      result.push(gaps[i]);
-      continue;
-    }
-
-    const turfGap = gapToTurfPolygon(gaps[i], imgW, imgH);
-
-    let intersects = false;
-    try {
-      intersects = turf.booleanIntersects(turfGap, circle);
-    } catch {
-      result.push(gaps[i]);
-      continue;
-    }
-
-    if (!intersects) {
-      result.push(gaps[i]);
-      continue;
-    }
-
-    try {
-      const diffCoords = polygonClipping.difference(
-        turfGap.geometry.coordinates as any,
-        circle.geometry.coordinates as any
-      );
-
-      if (diffCoords.length === 0) continue; // Fully erased
-
-      for (const coords of diffCoords) {
-        try {
-          const poly = turf.polygon(coords);
-          const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
-          if (gap.area_px >= minArea) result.push(gap);
-        } catch { }
-      }
-    } catch {
-      // Keep gap unchanged if clipping fails
-      result.push(gaps[i]);
-    }
-  }
-
-  return result;
+  return applyEraserStroke(gaps, [center], radius, imgW, imgH, selectedIds, minArea);
 }
 
 // ─── Magic Wand polygon union ────────────────────────────────────────────────
 
 /**
- * Apply a pre-computed polygon (e.g. from magic wand, lasso, or object select) 
+ * Apply a pre-computed polygon (e.g. from magic wand, lasso, or object select)
  * to the gap list using either Union (add) or Difference (subtract) logic.
  */
 export function applyPolygon(
@@ -251,7 +355,17 @@ export function applyPolygon(
       if (turf.booleanIntersects(tg, polygon)) {
         overlappingIndices.push(i);
       }
-    } catch { }
+    } catch {
+      // booleanIntersects failed on complex polygon — use AABB as fallback
+      try {
+        if (!turf.booleanDisjoint(
+          turf.bboxPolygon(turf.bbox(tg)),
+          turf.bboxPolygon(turf.bbox(polygon))
+        )) {
+          overlappingIndices.push(i);
+        }
+      } catch { }
+    }
   }
 
   if (mode === 'subtract') {
@@ -266,23 +380,35 @@ export function applyPolygon(
         continue;
       }
 
+      // Clean gap polygon before subtraction to fix self-intersections
+      let cleanedPieces: polygonClipping.Polygon[];
       try {
-        const diffCoords = polygonClipping.difference(
-          turfGaps[i].geometry.coordinates as any,
-          polygon.geometry.coordinates as any
-        );
-
-        if (diffCoords.length === 0) continue; // Fully erased
-
-        for (const coords of diffCoords) {
-          try {
-            const poly = turf.polygon(coords);
-            const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
-            if (gap.area_px >= minArea) result.push(gap);
-          } catch { }
-        }
+        cleanedPieces = cleanGapRings(turfGaps[i].geometry.coordinates as any);
       } catch {
-        result.push(gaps[i]);
+        cleanedPieces = [turfGaps[i].geometry.coordinates as any];
+      }
+
+      const clipper = polygon.geometry.coordinates as any;
+      const resultPieces: polygonClipping.MultiPolygon = [];
+
+      for (const cleanedRings of cleanedPieces) {
+        try {
+          const diffResult = polygonClipping.difference(cleanedRings, clipper);
+          resultPieces.push(...diffResult);
+        } catch (err) {
+          console.warn(`[applyPolygon subtract] difference failed for gap ${i}:`, err);
+          resultPieces.push(cleanedRings); // keep piece on failure
+        }
+      }
+
+      if (resultPieces.length === 0) continue; // Fully subtracted
+
+      for (const coords of resultPieces) {
+        try {
+          const poly = turf.polygon(coords as any);
+          const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
+          if (gap.area_px >= minArea) result.push(gap);
+        } catch { }
       }
     }
     return result;
@@ -310,7 +436,7 @@ export function applyPolygon(
   for (let i = 0; i < gaps.length; i++) {
     if (!overlappingSet.has(i)) result.push(gaps[i]);
   }
-  
+
   for (const coords of mergedCoords) {
     try {
       const poly = turf.polygon(coords);
@@ -364,9 +490,9 @@ export function mergeIncomingGaps(
       working.push({ ...incomingGap, source: 'auto' });
       continue;
     }
-    
+
     // Check if it overlaps any manual gaps
-    const overlapsManual = working.some(g => 
+    const overlapsManual = working.some(g =>
       g.source === 'manual' && turf.booleanIntersects(gapToTurfPolygon(g, imgW, imgH), incomingPoly)
     );
 
@@ -441,24 +567,35 @@ export function applySplit(
       continue;
     }
 
+    // Clean gap polygon before subtraction
+    let cleanedPieces: polygonClipping.Polygon[];
     try {
-      const diffCoords = polygonClipping.difference(
-        turfGap.geometry.coordinates as any,
-        splitter.geometry.coordinates as any
-      );
-
-      if (diffCoords.length === 0) continue; // Fully erased
-
-      for (const coords of diffCoords) {
-        try {
-          const poly = turf.polygon(coords);
-          const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
-          if (gap.area_px >= minArea) result.push(gap);
-        } catch { }
-      }
+      cleanedPieces = cleanGapRings(turfGap.geometry.coordinates as any);
     } catch {
-      // Keep gap unchanged if clipping fails
-      result.push(gaps[i]);
+      cleanedPieces = [turfGap.geometry.coordinates as any];
+    }
+
+    const clipper = splitter.geometry.coordinates as any;
+    const resultPieces: polygonClipping.MultiPolygon = [];
+
+    for (const cleanedRings of cleanedPieces) {
+      try {
+        const diffResult = polygonClipping.difference(cleanedRings, clipper);
+        resultPieces.push(...diffResult);
+      } catch (err) {
+        console.warn(`[applySplit] difference failed for gap ${i}:`, err);
+        resultPieces.push(cleanedRings);
+      }
+    }
+
+    if (resultPieces.length === 0) continue; // Fully removed
+
+    for (const coords of resultPieces) {
+      try {
+        const poly = turf.polygon(coords as any);
+        const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
+        if (gap.area_px >= minArea) result.push(gap);
+      } catch { }
     }
   }
 
@@ -467,9 +604,16 @@ export function applySplit(
 
 /**
  * Apply a full eraser stroke (multiple circle centers) as a single batch operation.
- * Builds a union of all eraser circles first, then subtracts the union from each
- * overlapping gap in one `polygonClipping.difference()` call — far cheaper than
- * calling `applyEraser` once per stamp during a drag.
+ *
+ * Algorithm:
+ *   1. Simplify the stroke path (cap circle count for performance)
+ *   2. Union all eraser circles → one MultiPolygon "clipper"
+ *   3. Clean the clipper's coordinate rings
+ *   4. For each overlapping gap:
+ *      a. Clean gap polygon (deduplicate vertices, fix self-intersections)
+ *      b. AABB-check before expensive boolean test (catches false-negative booleanIntersects)
+ *      c. polygonClipping.difference(cleanedGap, eraserUnion) — one call, not N
+ *      d. Log and recover from failures instead of silently keeping the gap
  */
 export function applyEraserStroke(
   gaps: Gap[],
@@ -482,19 +626,30 @@ export function applyEraserStroke(
 ): Gap[] {
   if (strokePoints.length === 0) return gaps;
 
-  // Build a union of all eraser circles → one MultiPolygon used as clipper
-  const circles = strokePoints.map(pt =>
+  // Step 1: Simplify stroke — keep points at least radius*0.75 apart.
+  // Circles spaced radius*0.75 apart still fully overlap, so no coverage gaps.
+  const simplified = simplifyStrokePath(strokePoints, radius * 0.75);
+
+  // Step 2: Build union of all eraser circles → one MultiPolygon clipper
+  const circles = simplified.map(pt =>
     createPixelCircle(pt.x, pt.y, radius).geometry.coordinates
   );
 
   let eraserUnion: polygonClipping.MultiPolygon;
   try {
     eraserUnion = circles.length === 1
-      ? [circles[0]]
+      ? [circles[0] as any]
       : polygonClipping.union(...(circles as any));
-  } catch {
+  } catch (err) {
+    console.warn('[applyEraserStroke] Failed to build eraser union:', err);
     return gaps;
   }
+
+  // Step 3: Clean eraser union (round + deduplicate junction artifacts)
+  const cleanedEraserUnion: polygonClipping.MultiPolygon = eraserUnion.map(cleanEraserRings);
+
+  // Pre-compute eraser AABB for fast per-gap rejection
+  const eraserAabb = multiPolygonAabb(cleanedEraserUnion);
 
   const hasSelection = selectedIds.size > 0;
   const result: Gap[] = [];
@@ -507,42 +662,96 @@ export function applyEraserStroke(
 
     const turfGap = gapToTurfPolygon(gaps[i], imgW, imgH);
 
-    // Quick intersection check against each part of the eraser union
-    let intersects = false;
+    // Step 4a: Clean gap polygon to fix self-intersections before boolean ops
+    let cleanedPieces: polygonClipping.Polygon[];
     try {
-      for (const coords of eraserUnion) {
-        if (turf.booleanIntersects(turfGap, turf.polygon(coords))) {
-          intersects = true;
-          break;
+      cleanedPieces = cleanGapRings(turfGap.geometry.coordinates as any);
+    } catch {
+      cleanedPieces = [turfGap.geometry.coordinates as any];
+    }
+
+    // Step 4b + 4c: Per-cleaned-piece: AABB check → intersect check → difference
+    const pieceDiffResults: polygonClipping.MultiPolygon = [];
+    let anyPieceHit = false;
+
+    for (const cleanedRings of cleanedPieces) {
+      // Fast AABB pre-check — if piece doesn't even touch eraser bounding box, skip
+      const pieceAabb = polyAabb(cleanedRings);
+      if (!aabbsOverlap(pieceAabb, eraserAabb)) {
+        pieceDiffResults.push(cleanedRings); // keep piece
+        continue;
+      }
+
+      // Intersection check using cleaned polygon
+      // On failure, trust the AABB overlap and proceed to the difference anyway —
+      // the difference will produce the correct geometric result either way.
+      let intersects = false;
+      try {
+        for (const eraserPoly of cleanedEraserUnion) {
+          if (turf.booleanIntersects(
+            turf.polygon(cleanedRings as any),
+            turf.polygon(eraserPoly as any),
+          )) {
+            intersects = true;
+            break;
+          }
         }
+      } catch {
+        // booleanIntersects failed on this complex polygon — AABB says they overlap
+        // so assume intersection is true and let the difference decide
+        intersects = true;
       }
-    } catch {
+
+      if (!intersects) {
+        pieceDiffResults.push(cleanedRings); // keep piece
+        continue;
+      }
+
+      anyPieceHit = true;
+
+      // Step 4d: Boolean difference — subtract cleaned eraser from this piece
+      try {
+        const diffResult = polygonClipping.difference(
+          cleanedRings,
+          ...(cleanedEraserUnion as any),
+        );
+        pieceDiffResults.push(...diffResult);
+      } catch (err) {
+        console.warn(`[applyEraserStroke] difference failed for gap ${i}:`, err);
+        // Keep piece unchanged on failure rather than silently dropping it
+        pieceDiffResults.push(cleanedRings);
+      }
+    }
+
+    if (!anyPieceHit) {
+      // Eraser did not contact this gap — preserve it unchanged
       result.push(gaps[i]);
       continue;
     }
 
-    if (!intersects) {
-      result.push(gaps[i]);
-      continue;
+    // Convert surviving pieces back to Gap objects (filter tiny fragments)
+    let hadValidOutput = false;
+    for (const coords of pieceDiffResults) {
+      try {
+        const poly = turf.polygon(coords as any);
+        const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
+        if (gap.area_px >= minArea) {
+          result.push(gap);
+          hadValidOutput = true;
+        }
+      } catch { }
     }
 
-    try {
-      // Subtract entire eraser union from gap in one operation
-      const diffCoords = polygonClipping.difference(
-        turfGap.geometry.coordinates as any,
-        ...(eraserUnion as any)
-      );
-
-      if (diffCoords.length === 0) continue; // Fully erased
-
-      for (const coords of diffCoords) {
-        try {
-          const poly = turf.polygon(coords);
-          const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
-          if (gap.area_px >= minArea) result.push(gap);
-        } catch { }
-      }
-    } catch {
+    // If every piece was fully erased (diffResult was empty for all pieces),
+    // the gap is completely removed — nothing to push, which is correct.
+    // But if the difference itself kept failing and we have no valid output
+    // despite anyPieceHit=true, fall back to keeping the original gap so data
+    // is never silently lost.
+    if (!hadValidOutput && pieceDiffResults.every(p => {
+      // A kept piece (not a diff result) is still in pieceDiffResults — check if
+      // any of them are non-empty to distinguish "fully erased" from "all failed"
+      try { return turf.polygon(p as any) && false; } catch { return true; }
+    })) {
       result.push(gaps[i]);
     }
   }
