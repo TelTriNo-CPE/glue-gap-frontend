@@ -480,34 +480,48 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isEditableTarget(event.target)) return;
-      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      
+      const isCmdOrCtrl = event.ctrlKey || event.metaKey;
+      if (!isCmdOrCtrl || event.altKey) return;
 
       const key = event.key.toLowerCase();
 
+      // Undo: Ctrl+Z / Cmd+Z
       if (key === 'z') {
         if (event.shiftKey) {
+          // Redo: Ctrl+Shift+Z / Cmd+Shift+Z
           if (!canRedo || isSaving) return;
           event.preventDefault();
           handleRedo();
           return;
         }
 
+        // Undo: Ctrl+Z
         if (!canUndo || isSaving) return;
         event.preventDefault();
         handleUndo();
         return;
       }
 
+      // Redo: Ctrl+Y / Cmd+Y
       if (key === 'y' && !event.shiftKey) {
         if (!canRedo || isSaving) return;
         event.preventDefault();
         handleRedo();
+        return;
+      }
+
+      // Save/Export: Ctrl+S / Cmd+S
+      if (key === 's' && !event.shiftKey) {
+        if (!displayGaps.length) return;
+        event.preventDefault();
+        setExportModalOpen(true);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canRedo, canUndo, handleRedo, handleUndo, isSaving]);
+  }, [canRedo, canUndo, handleRedo, handleUndo, isSaving, displayGaps.length]);
 
   // ── Merge-commit flush ──────────────────────────────────────────────────────
   // When auto-detection runs while manual gaps already exist, handleDetect
