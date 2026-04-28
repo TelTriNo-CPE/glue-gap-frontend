@@ -3,8 +3,6 @@ dist
 .git
 .gitignore
 .dockerignore
-Dockerfile
-nginx.conf
 README.md
 .vscode
 .geminiignore
