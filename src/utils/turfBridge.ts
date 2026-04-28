@@ -1,6 +1,6 @@
 import * as turf from '@turf/turf';
 import polygonClipping from 'polygon-clipping';
-import type { Feature, Polygon, MultiPolygon, Position } from 'geojson';
+import type { Feature, Polygon, Position } from 'geojson';
 import type { Gap } from '../types';
 
 // ─── Coordinate helpers ──────────────────────────────────────────────────────
@@ -355,7 +355,7 @@ export function applyBrush(
 
   let mergedCoords: polygonClipping.MultiPolygon;
   try {
-    mergedCoords = polygonClipping.union(...toUnion as any);
+    mergedCoords = polygonClipping.union(toUnion[0] as any, ...toUnion.slice(1) as any);
   } catch {
     return gaps;
   }
@@ -494,7 +494,7 @@ export function applyPolygon(
 
   let mergedCoords: polygonClipping.MultiPolygon;
   try {
-    mergedCoords = polygonClipping.union(...toUnion as any);
+    mergedCoords = polygonClipping.union(toUnion[0] as any, ...toUnion.slice(1) as any);
   } catch {
     return gaps;
   }
@@ -688,7 +688,7 @@ export function applyEraserStroke(
   try {
     eraserUnion = circles.length === 1
       ? [circles[0] as any]
-      : polygonClipping.union(...(circles as any));
+      : polygonClipping.union(circles[0] as any, ...circles.slice(1) as any);
   } catch (err) {
     console.warn('[applyEraserStroke] Failed to build eraser union:', err);
     return gaps;
@@ -792,24 +792,4 @@ export function applyEraserStroke(
   }
 
   return result;
-}
-
-/**
- * Extract individual Gap objects from a Polygon or MultiPolygon feature.
- */
-function extractPolygons(feature: Feature<Polygon | MultiPolygon>, imgW: number, imgH: number, source?: 'auto' | 'manual'): Gap[] {
-  const geom = feature.geometry;
-
-  if (geom.type === 'Polygon') {
-    return [turfPolygonToGap(turf.polygon(geom.coordinates), imgW, imgH, source)];
-  }
-
-  const results: Gap[] = [];
-  for (const coords of geom.coordinates) {
-    try {
-      const poly = turf.polygon(coords);
-      results.push(turfPolygonToGap(poly, imgW, imgH, source));
-    } catch { }
-  }
-  return results;
 }
