@@ -1,4 +1,5 @@
 import * as turf from '@turf/turf';
+import polygonClipping from 'polygon-clipping';
 import type { Feature, Polygon, MultiPolygon, Position } from 'geojson';
 import type { Gap } from '../types';
 
@@ -129,16 +130,17 @@ export function applyBrush(
   }
 
   // Union circle + all overlapping gaps
-  let merged: Feature<Polygon | MultiPolygon> = circle;
+  const toUnion = [circle.geometry.coordinates];
   for (const idx of overlappingIndices) {
-    try {
-      const result = turf.union(
-        turf.featureCollection([merged as Feature<Polygon>, turfGaps[idx]]),
-      );
-      if (result) merged = result as Feature<Polygon | MultiPolygon>;
-    } catch {
-      // Skip failed union
-    }
+    toUnion.push(turfGaps[idx].geometry.coordinates);
+  }
+
+  let mergedCoords: polygonClipping.MultiPolygon;
+  try {
+    mergedCoords = polygonClipping.union(...toUnion as any);
+  } catch {
+    // Fallback if union fails (rare with polygonClipping)
+    return gaps;
   }
 
   // Build new gap array: non-overlapping gaps stay, overlapping replaced by merged
@@ -151,9 +153,13 @@ export function applyBrush(
     }
   }
 
-  // Extract polygons from merged result
-  const extracted = extractPolygons(merged, imgW, imgH, 'manual');
-  result.push(...extracted);
+  // Extract gaps from the MultiPolygon coordinates
+  for (const coords of mergedCoords) {
+    try {
+      const poly = turf.polygon(coords);
+      result.push(turfPolygonToGap(poly, imgW, imgH, 'manual'));
+    } catch { }
+  }
 
   return result;
 }
@@ -168,16 +174,15 @@ export function applyEraser(
   radius: number,
   imgW: number,
   imgH: number,
-  selectedIds: number[],
+  selectedIds: Set<number>,
   minArea = 4,
 ): Gap[] {
   const circle = createPixelCircle(center.x, center.y, radius);
   const result: Gap[] = [];
-  const hasSelection = selectedIds.length > 0;
+  const hasSelection = selectedIds.size > 0;
 
   for (let i = 0; i < gaps.length; i++) {
-    // If there's a selection, only erase from selected gaps
-    if (hasSelection && !selectedIds.includes(i)) {
+    if (hasSelection && !selectedIds.has(i)) {
       result.push(gaps[i]);
       continue;
     }
@@ -188,7 +193,6 @@ export function applyEraser(
     try {
       intersects = turf.booleanIntersects(turfGap, circle);
     } catch {
-      // If test fails, keep gap unchanged
       result.push(gaps[i]);
       continue;
     }
@@ -199,21 +203,22 @@ export function applyEraser(
     }
 
     try {
-      const diff = turf.difference(turf.featureCollection([turfGap, circle]));
-      if (!diff) {
-        // Fully erased — gap removed
-        continue;
-      }
+      const diffCoords = polygonClipping.difference(
+        turfGap.geometry.coordinates as any,
+        circle.geometry.coordinates as any
+      );
 
-      const extracted = extractPolygons(diff as Feature<Polygon | MultiPolygon>, imgW, imgH, 'manual');
-      // Filter out tiny fragments
-      for (const gap of extracted) {
-        if (gap.area_px >= minArea) {
-          result.push(gap);
-        }
+      if (diffCoords.length === 0) continue; // Fully erased
+
+      for (const coords of diffCoords) {
+        try {
+          const poly = turf.polygon(coords);
+          const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
+          if (gap.area_px >= minArea) result.push(gap);
+        } catch { }
       }
     } catch {
-      // If difference fails, keep gap unchanged
+      // Keep gap unchanged if clipping fails
       result.push(gaps[i]);
     }
   }
@@ -246,9 +251,7 @@ export function applyPolygon(
       if (turf.booleanIntersects(tg, polygon)) {
         overlappingIndices.push(i);
       }
-    } catch {
-      // Skip gaps that fail the intersection test
-    }
+    } catch { }
   }
 
   if (mode === 'subtract') {
@@ -264,12 +267,19 @@ export function applyPolygon(
       }
 
       try {
-        const diff = turf.difference(turf.featureCollection([turfGaps[i], polygon]));
-        if (!diff) continue; // Fully erased
+        const diffCoords = polygonClipping.difference(
+          turfGaps[i].geometry.coordinates as any,
+          polygon.geometry.coordinates as any
+        );
 
-        const extracted = extractPolygons(diff as Feature<Polygon | MultiPolygon>, imgW, imgH, 'manual');
-        for (const g of extracted) {
-          if (g.area_px >= minArea) result.push(g);
+        if (diffCoords.length === 0) continue; // Fully erased
+
+        for (const coords of diffCoords) {
+          try {
+            const poly = turf.polygon(coords);
+            const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
+            if (gap.area_px >= minArea) result.push(gap);
+          } catch { }
         }
       } catch {
         result.push(gaps[i]);
@@ -280,30 +290,33 @@ export function applyPolygon(
 
   // mode === 'add' (Union)
   if (overlappingIndices.length === 0) {
-    // No overlap — add as a new independent gap
     return [...gaps, turfPolygonToGap(polygon, imgW, imgH, source)];
   }
 
-  // Union the polygon with all overlapping gaps
-  let merged: Feature<Polygon | MultiPolygon> = polygon;
+  const toUnion = [polygon.geometry.coordinates];
   for (const idx of overlappingIndices) {
-    try {
-      const result = turf.union(
-        turf.featureCollection([merged as Feature<Polygon>, turfGaps[idx]]),
-      );
-      if (result) merged = result as Feature<Polygon | MultiPolygon>;
-    } catch {
-      // Skip failed union step
-    }
+    toUnion.push(turfGaps[idx].geometry.coordinates);
   }
 
-  // Rebuild gap array: keep non-overlapping gaps, add merged result
+  let mergedCoords: polygonClipping.MultiPolygon;
+  try {
+    mergedCoords = polygonClipping.union(...toUnion as any);
+  } catch {
+    return gaps;
+  }
+
   const overlappingSet = new Set(overlappingIndices);
   const result: Gap[] = [];
   for (let i = 0; i < gaps.length; i++) {
     if (!overlappingSet.has(i)) result.push(gaps[i]);
   }
-  result.push(...extractPolygons(merged, imgW, imgH, source));
+  
+  for (const coords of mergedCoords) {
+    try {
+      const poly = turf.polygon(coords);
+      result.push(turfPolygonToGap(poly, imgW, imgH, source));
+    } catch { }
+  }
   return result;
 }
 
@@ -429,20 +442,107 @@ export function applySplit(
     }
 
     try {
-      const diff = turf.difference(turf.featureCollection([turfGap, splitter]));
-      if (!diff) {
-        // Fully consumed by the sliver (unlikely but possible for tiny gaps)
-        continue;
-      }
+      const diffCoords = polygonClipping.difference(
+        turfGap.geometry.coordinates as any,
+        splitter.geometry.coordinates as any
+      );
 
-      const extracted = extractPolygons(diff as Feature<Polygon | MultiPolygon>, imgW, imgH, 'manual');
-      for (const gap of extracted) {
-        if (gap.area_px >= minArea) {
-          result.push(gap);
+      if (diffCoords.length === 0) continue; // Fully erased
+
+      for (const coords of diffCoords) {
+        try {
+          const poly = turf.polygon(coords);
+          const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
+          if (gap.area_px >= minArea) result.push(gap);
+        } catch { }
+      }
+    } catch {
+      // Keep gap unchanged if clipping fails
+      result.push(gaps[i]);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Apply a full eraser stroke (multiple circle centers) as a single batch operation.
+ * Builds a union of all eraser circles first, then subtracts the union from each
+ * overlapping gap in one `polygonClipping.difference()` call — far cheaper than
+ * calling `applyEraser` once per stamp during a drag.
+ */
+export function applyEraserStroke(
+  gaps: Gap[],
+  strokePoints: { x: number; y: number }[],
+  radius: number,
+  imgW: number,
+  imgH: number,
+  selectedIds: Set<number>,
+  minArea = 4,
+): Gap[] {
+  if (strokePoints.length === 0) return gaps;
+
+  // Build a union of all eraser circles → one MultiPolygon used as clipper
+  const circles = strokePoints.map(pt =>
+    createPixelCircle(pt.x, pt.y, radius).geometry.coordinates
+  );
+
+  let eraserUnion: polygonClipping.MultiPolygon;
+  try {
+    eraserUnion = circles.length === 1
+      ? [circles[0]]
+      : polygonClipping.union(...(circles as any));
+  } catch {
+    return gaps;
+  }
+
+  const hasSelection = selectedIds.size > 0;
+  const result: Gap[] = [];
+
+  for (let i = 0; i < gaps.length; i++) {
+    if (hasSelection && !selectedIds.has(i)) {
+      result.push(gaps[i]);
+      continue;
+    }
+
+    const turfGap = gapToTurfPolygon(gaps[i], imgW, imgH);
+
+    // Quick intersection check against each part of the eraser union
+    let intersects = false;
+    try {
+      for (const coords of eraserUnion) {
+        if (turf.booleanIntersects(turfGap, turf.polygon(coords))) {
+          intersects = true;
+          break;
         }
       }
     } catch {
-      // If difference fails, keep gap unchanged
+      result.push(gaps[i]);
+      continue;
+    }
+
+    if (!intersects) {
+      result.push(gaps[i]);
+      continue;
+    }
+
+    try {
+      // Subtract entire eraser union from gap in one operation
+      const diffCoords = polygonClipping.difference(
+        turfGap.geometry.coordinates as any,
+        ...(eraserUnion as any)
+      );
+
+      if (diffCoords.length === 0) continue; // Fully erased
+
+      for (const coords of diffCoords) {
+        try {
+          const poly = turf.polygon(coords);
+          const gap = turfPolygonToGap(poly, imgW, imgH, 'manual');
+          if (gap.area_px >= minArea) result.push(gap);
+        } catch { }
+      }
+    } catch {
       result.push(gaps[i]);
     }
   }

@@ -3,7 +3,7 @@ import OpenSeadragon from 'openseadragon';
 import * as turf from '@turf/turf';
 import { getDziUrl } from '../api';
 import type { BoundingBox, Gap, ClickMode, SelectionMode } from '../types';
-import { applyBrush, applyEraser, applySplit, applyPolygon } from '../utils/turfBridge';
+import { applyBrush, applyEraserStroke, applySplit, applyPolygon } from '../utils/turfBridge';
 import { executeMagicWand } from '../utils/magicWand';
 
 interface Props {
@@ -128,6 +128,7 @@ export default function OsdViewer({
   const lastQuickSelectPosRef = useRef<{ x: number; y: number } | null>(null);
   const freehandPointsRef = useRef<{ x: number; y: number }[]>([]);
   const polyPointsRef = useRef<{ x: number; y: number }[]>([]);
+  const eraserStrokeRef = useRef<{ x: number; y: number }[]>([]);
 
   const [tilesReady,   setTilesReady]  = useState(false);
   const [tileError,    setTileError]   = useState<string | null>(null);
@@ -345,6 +346,34 @@ export default function OsdViewer({
         drawn++;
       } catch {
         // Skip individual polygon failures
+      }
+    }
+
+    // ── Eraser stroke preview: draw accumulated circles using destination-out ──
+    // This gives smooth visual feedback during drag without running polygon-clipping
+    // on every mouse-move event. The actual geometric subtraction happens on release.
+    if (isPaintingRef.current && clickModeRef.current === 'eraser') {
+      const eraserPath = eraserStrokeRef.current;
+      if (eraserPath.length > 0) {
+        const brushRadius = brushSizeRef.current / 2;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+        for (const pt of eraserPath) {
+          const vpPt = viewer.viewport.imageToViewportCoordinates(
+            new OpenSeadragon.Point(pt.x, pt.y)
+          );
+          const sPt = viewer.viewport.pixelFromPoint(vpPt, true);
+          const offPt = viewer.viewport.imageToViewportCoordinates(
+            new OpenSeadragon.Point(pt.x + brushRadius, pt.y)
+          );
+          const sOff = viewer.viewport.pixelFromPoint(offPt, true);
+          const sRadius = Math.max(1, Math.abs(sOff.x - sPt.x));
+          ctx.beginPath();
+          ctx.arc(sPt.x, sPt.y, sRadius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
       }
     }
 
@@ -607,21 +636,19 @@ export default function OsdViewer({
 
     // ── Paint stamp helper ──────────────────────────────────────────────
     function applyPaintStamp(imgX: number, imgY: number, mode: 'brush' | 'eraser') {
-      const currentGaps = gapsRef.current;
       const size = getEffectiveSize();
       if (!size) return;
       const brushRadius = brushSizeRef.current / 2;
 
-      let newGaps: Gap[];
       if (mode === 'brush') {
-        newGaps = applyBrush(currentGaps, { x: imgX, y: imgY }, brushRadius, size.width, size.height);
+        // Brush: apply union immediately — additive ops are cheap and fast
+        gapsRef.current = applyBrush(gapsRef.current, { x: imgX, y: imgY }, brushRadius, size.width, size.height);
       } else {
-        const selectedIds = Array.from(selectedRef.current);
-        newGaps = applyEraser(currentGaps, { x: imgX, y: imgY }, brushRadius, size.width, size.height, selectedIds);
+        // Eraser: only accumulate positions — geometric subtraction is deferred
+        // to mouse-up via applyEraserStroke(). The destination-out preview in
+        // drawPolygons gives immediate visual feedback without polygon-clipping cost.
+        eraserStrokeRef.current.push({ x: imgX, y: imgY });
       }
-
-      // Optimistic update to prevent stale data on rapid stamps
-      gapsRef.current = newGaps;
     }
 
     viewer.addHandler('open', () => {
@@ -827,6 +854,10 @@ export default function OsdViewer({
       if (mode === 'brush' || mode === 'eraser' || mode === 'quick-select' || mode === 'lasso-freehand') {
         isPaintingRef.current = true;
         lastPaintImgRef.current = { x: imgPoint.x, y: imgPoint.y };
+
+        if (mode === 'eraser') {
+          eraserStrokeRef.current = []; // Reset stroke accumulator on new press
+        }
 
         if (mode === 'lasso-freehand') {
           freehandPointsRef.current = [{ x: imgPoint.x, y: imgPoint.y }];
@@ -1136,6 +1167,27 @@ export default function OsdViewer({
               const ctx = bCanvas.getContext('2d');
               if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
             }
+          } else if (mode === 'eraser') {
+            // Apply accumulated eraser stroke geometrically in one batch operation.
+            // This runs polygonClipping.difference() once (after building a union of
+            // all eraser circles) instead of once per stamp — dramatically cheaper.
+            const eraserPath = eraserStrokeRef.current;
+            if (eraserPath.length > 0) {
+              const size = getEffectiveSize();
+              if (size) {
+                const newGaps = applyEraserStroke(
+                  gapsRef.current,
+                  eraserPath,
+                  brushSizeRef.current / 2,
+                  size.width,
+                  size.height,
+                  selectedRef.current,
+                );
+                gapsRef.current = newGaps;
+              }
+            }
+            eraserStrokeRef.current = [];
+            scheduleFullRedraw();
           }
           onGapsModifiedRef.current?.(gapsRef.current);
         }
