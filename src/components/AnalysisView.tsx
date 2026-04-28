@@ -512,16 +512,33 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
       }
 
       // Save/Export: Ctrl+S / Cmd+S
-      if (key === 's' && !event.shiftKey) {
-        if (!displayGaps.length) return;
-        event.preventDefault();
-        setExportModalOpen(true);
+      if (key === 's') {
+        if (event.shiftKey) {
+          // Export: Ctrl+Shift+S / Cmd+Shift+S
+          if (!displayGaps.length) return;
+          event.preventDefault();
+          setExportModalOpen(true);
+        } else {
+          // Save Change: Ctrl+S / Cmd+S
+          if (!hasEdits || isSaving) return;
+          event.preventDefault();
+          handleSaveEdits();
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [canRedo, canUndo, handleRedo, handleUndo, isSaving, displayGaps.length]);
+  }, [
+    canRedo,
+    canUndo,
+    handleRedo,
+    handleUndo,
+    handleSaveEdits,
+    isSaving,
+    hasEdits,
+    displayGaps.length,
+  ]);
 
   // ── Merge-commit flush ──────────────────────────────────────────────────────
   // When auto-detection runs while manual gaps already exist, handleDetect
@@ -545,7 +562,7 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
     );
   }, [activeVersionId, commitGapEdits, handleGapsModified]);
 
-  async function handleSaveEdits() {
+  const handleSaveEdits = useCallback(async () => {
     if (!present || isSaving) return;
 
     setIsSaving(true);
@@ -585,7 +602,16 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
     } finally {
       setIsSaving(false);
     }
-  }
+  }, [
+    present,
+    isSaving,
+    analysisStem,
+    activeVersionId,
+    sensitivity,
+    minArea,
+    resetGapEdits,
+    clearGapInteractionState,
+  ]);
 
   function switchVersion(id: string) {
     setActiveVersionId(id);
