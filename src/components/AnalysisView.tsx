@@ -201,7 +201,11 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
   // Sync fullscreen state with native browser event (e.g. Esc key)
   useEffect(() => {
     const handler = () => {
-      setIsFullscreen(!!document.fullscreenElement);
+      const isFull = !!document.fullscreenElement;
+      setIsFullscreen(isFull);
+      if (isFull) {
+        setIsRightPanelOpen(false);
+      }
     };
     document.addEventListener('fullscreenchange', handler);
     return () => document.removeEventListener('fullscreenchange', handler);
