@@ -7,6 +7,7 @@ import useGapHistory from '../hooks/useGapHistory';
 import Toolbar from './Toolbar';
 import OsdViewer from './OsdViewer';
 import ResultsPanel from './ResultsPanel';
+import ExportModal from './ExportModal';
 
 interface Props {
   fileKey: string;
@@ -63,6 +64,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [fillColor, setFillColor] = useState(DEFAULT_FILL_COLOR);
   const [selectedColor, setSelectedColor] = useState(DEFAULT_SELECTED_COLOR);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('add');
+  const [exportModalOpen, setExportModalOpen] = useState(false);
   const previousModeRef = useRef<ClickMode | null>(null);
   const selectionModeBeforeAltRef = useRef<SelectionMode>('add');
   // Holds the pre-detection and merged gaps so we can push them onto the
@@ -791,8 +793,6 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         >
           <Toolbar
             width={isDesktop ? leftWidth : mobileLeftPanelWidth}
-            stem={analysisStem}
-            fileKey={fileKey}
             isGreyscale={grayscale}
             hideUnselected={hideUnselected}
             isOutlineOnly={isOutlineOnly}
@@ -839,6 +839,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
             selectionMode={selectionMode}
             onSelectionModeChange={setSelectionMode}
             hasGaps={displayGaps.length > 0}
+            onOpenExport={() => setExportModalOpen(true)}
           />
         </div>
 
@@ -998,12 +999,25 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
 
         {/* Mobile Backdrop */}
         {!isDesktop && (isLeftPanelOpen || isRightPanelOpen) && (
-          <div 
+          <div
             onClick={closePanels}
             className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity duration-300"
           />
         )}
       </div>
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        gaps={displayGaps}
+        selectedGapIds={selectedGapIds}
+        hiddenGapIndices={hiddenGapIndices}
+        stem={analysisStem}
+        imageSize={result?.image_size ?? null}
+        outlineColor={outlineColor}
+        fillColor={fillColor}
+      />
     </div>
   );
 }
