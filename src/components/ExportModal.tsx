@@ -127,29 +127,44 @@ async function makeThumbnail(
   outlineColor: string,
   fillColor: string,
 ): Promise<string> {
+  // bbox is in analysis pixel coordinates (imgW × imgH space)
   const bbox = gapBBox(gap, imgW, imgH);
-  
+
   // Use an off-screen canvas
-  const c = typeof OffscreenCanvas !== 'undefined' 
+  const c = typeof OffscreenCanvas !== 'undefined'
     ? new OffscreenCanvas(THUMB_PX, THUMB_PX) as unknown as HTMLCanvasElement
     : document.createElement('canvas');
-    
+
   c.width = THUMB_PX; c.height = THUMB_PX;
   const ctx = c.getContext('2d')!;
-  
-  // 1. Background
+
+  // [5] STEP 1: White background
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, THUMB_PX, THUMB_PX);
-  
+
   const scale = Math.min(THUMB_PX / bbox.w, THUMB_PX / bbox.h);
   const dw = bbox.w * scale, dh = bbox.h * scale;
   const dx = (THUMB_PX - dw) / 2;
   const dy = (THUMB_PX - dh) / 2;
 
-  // 2. Draw base photo crop
-  ctx.drawImage(src, bbox.x, bbox.y, bbox.w, bbox.h, dx, dy, dw, dh);
+  // [5] STEP 2: Draw cropped source image.
+  // The bbox coordinates are in analysis pixel space. If the loaded image has
+  // different pixel dimensions (e.g. a proxy serving a lower-res tile), we
+  // must scale the source crop region accordingly so we extract the correct
+  // portion of whatever resolution src happens to be.
+  const srcScaleX = src.width  / imgW;
+  const srcScaleY = src.height / imgH;
+  ctx.drawImage(
+    src,
+    bbox.x * srcScaleX, bbox.y * srcScaleY,
+    bbox.w * srcScaleX, bbox.h * srcScaleY,
+    dx, dy, dw, dh,
+  );
 
-  // 3. Gap Overlay (Mask + Outline)
+  // [5] STEP 3: ONLY AFTER the image crop is drawn, overlay the gap polygon
+  // on the SAME ctx so it composites on top of the background.
+  // Gap coords are in analysis pixel space — the offset/scale math below
+  // maps them into the 72 px thumbnail coordinate system.
   drawGap(ctx, gap, scale, scale, true, true, outlineColor, fillColor, -bbox.x, -bbox.y, dx, dy, 1.5);
 
   if (c instanceof HTMLCanvasElement) {
@@ -230,29 +245,44 @@ interface ImgParams {
 }
 
 async function runImageExport(p: ImgParams): Promise<void> {
-  console.log('[Export] Starting full image export...', { stem: p.stem, fileKey: p.fileKey, imageSrc: p.imageSrc });
-  
-  // 1. Wait for the original image to be fully loaded
-  const src = await tryLoadSourceImage(p.stem, p.fileKey, p.imageSrc);
-  
-  if (!src) {
-    console.error('[Export] runImageExport: Original image source could not be loaded.');
+  // [3] Log gap count up-front so any empty-array bug is immediately visible in
+  // the browser console. Also logs the active version's image dimensions.
+  console.log(
+    `[Export] runImageExport — gaps: ${p.exportGaps.length}, imageSize: ${p.imageSize?.width}×${p.imageSize?.height}`,
+    { stem: p.stem, fileKey: p.fileKey },
+  );
+  if (p.exportGaps.length === 0) {
+    console.warn('[Export] exportGaps is empty — no overlays will be drawn. Check the active version has been detected.');
   }
 
-  // 2. Set canvas dimensions to perfectly match the original image (or fallback)
-  const imgW = src ? src.width  : (p.imageSize?.width  ?? 1024);
-  const imgH = src ? src.height : (p.imageSize?.height ?? 768);
+  // [1][4] Canvas dimensions are fixed to the analysis image_size — the
+  // coordinate space that all gap polygons are defined in.  We must NOT use
+  // src.width/height here: the image proxy may serve a downscaled tile or
+  // thumbnail at a completely different resolution, which would make the canvas
+  // too small and push every gap polygon out of bounds (invisible).
+  const imgW = p.imageSize?.width  ?? 1024;
+  const imgH = p.imageSize?.height ?? 768;
 
+  // [4] Create the single shared canvas context.  Every layer is drawn onto
+  // this exact same ctx in strict sequential order.
   const canvas = document.createElement('canvas');
-  canvas.width = imgW; 
+  canvas.width  = imgW;
   canvas.height = imgH;
   const ctx = canvas.getContext('2d')!;
 
-  // 3. Draw base layer (PHOTO FIRST)
+  // [2] STEP 1: Await the image load completely BEFORE touching the canvas.
+  const src = await tryLoadSourceImage(p.stem, p.fileKey, p.imageSrc);
+  if (!src) {
+    console.error('[Export] Source image could not be loaded — exporting gaps on plain background.');
+  }
+
+  // [2] STEP 2: Draw the background photo, scaled to fill the analysis canvas.
+  // ctx.drawImage with explicit (0, 0, imgW, imgH) destination stretches src
+  // to match the canvas regardless of src.width/height.
   if (src) {
-    ctx.drawImage(src, 0, 0);
+    ctx.drawImage(src, 0, 0, imgW, imgH);
   } else {
-    // If photo fails to load, draw placeholder
+    // Placeholder when image loading fails
     ctx.fillStyle = '#111';
     ctx.fillRect(0, 0, imgW, imgH);
     ctx.fillStyle = '#fff';
@@ -263,7 +293,9 @@ async function runImageExport(p: ImgParams): Promise<void> {
     ctx.fillText('Exporting detections only', imgW / 2, imgH / 2 + 30);
   }
 
-  // 4. Draw gap overlays (masks and outlines)
+  // [2] STEP 3: ONLY AFTER the background is fully drawn, loop through the
+  // gaps and draw each polygon on top.  All coordinates are in image pixel
+  // space (imgW × imgH), so sx=1, sy=1 is correct.
   if ((p.drawOutlines || p.drawMasks) && p.exportGaps.length > 0) {
     for (const gap of p.exportGaps) {
       drawGap(ctx, gap, 1, 1, p.drawOutlines, p.drawMasks, p.outlineColor, p.fillColor);
@@ -305,22 +337,27 @@ async function runImageExport(p: ImgParams): Promise<void> {
     });
   }
 
-  // 6. Export Final combined image
+  // [2] STEP 5: Wrap canvas.toBlob in a Promise so this async function truly
+  // awaits the download and any SecurityError (tainted canvas) or empty-blob
+  // failure propagates back to handleExport's catch block.
   const mime = p.format === 'jpeg' ? 'image/jpeg' : 'image/png';
   const quality = p.format === 'jpeg' ? 0.95 : undefined;
 
-  canvas.toBlob(blob => {
-    if (!blob) {
-      console.error('[Export] Failed to create blob from canvas.');
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement('a'), {
-      href: url, download: `${p.stem}-export.${p.format === 'jpeg' ? 'jpg' : 'png'}`,
-    });
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 100);
-  }, mime, quality);
+  await new Promise<void>((resolve, reject) => {
+    canvas.toBlob(blob => {
+      if (!blob) {
+        reject(new Error('[Export] canvas.toBlob produced an empty blob — the canvas may be tainted or too large.'));
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), {
+        href: url, download: `${p.stem}-export.${p.format === 'jpeg' ? 'jpg' : 'png'}`,
+      });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 100);
+      resolve();
+    }, mime, quality);
+  });
 }
 
 // ─── Excel Export ─────────────────────────────────────────────────────────────
@@ -583,7 +620,10 @@ export default function ExportModal({
     setIsExporting(true);
     setExportError(null);
     try {
+      // [1][3] Snapshot the active-version gaps at call time and log the count
+      // so stale-prop or empty-array bugs are immediately visible in the console.
       const exportGaps = getExportGaps();
+      console.log(`[Export] handleExport — scope: ${exportScope}, gaps: ${exportGaps.length} / ${gaps.length} total`);
       if (activeTab === 'image') {
         await runImageExport({ 
           stem, 
