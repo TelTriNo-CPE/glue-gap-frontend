@@ -477,6 +477,57 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
     };
   }, [clickMode]);
 
+  const handleSaveEdits = useCallback(async () => {
+    if (!present || isSaving) return;
+
+    setIsSaving(true);
+
+    try {
+      const updatedResult = await saveAnalysisGaps(analysisStem, present);
+
+      if (activeVersionId) {
+        setDetectionHistory(prev =>
+          prev.map(version =>
+            version.id === activeVersionId
+              ? {
+                  ...version,
+                  result: updatedResult,
+                }
+              : version,
+          ),
+        );
+      } else {
+        // No detection run yet, create a "version 1" from manual edits
+        const newVersion: DetectionVersion = {
+          id: crypto.randomUUID(),
+          versionNumber: 1,
+          timestamp: new Date(),
+          params: { sensitivity, minArea },
+          result: updatedResult,
+        };
+        setDetectionHistory([newVersion]);
+        setActiveVersionId(newVersion.id);
+      }
+
+      resetGapEdits();
+      clearGapInteractionState();
+      setVisibleGapIdsInViewport(new Set());
+    } catch (err: unknown) {
+      setToast(extractErrorMessage(err));
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    present,
+    isSaving,
+    analysisStem,
+    activeVersionId,
+    sensitivity,
+    minArea,
+    resetGapEdits,
+    clearGapInteractionState,
+  ]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isEditableTarget(event.target)) return;
@@ -561,57 +612,6 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
       `Auto-detection merged with ${n} existing gap${n === 1 ? '' : 's'} — press Ctrl+Z to undo`,
     );
   }, [activeVersionId, commitGapEdits, handleGapsModified]);
-
-  const handleSaveEdits = useCallback(async () => {
-    if (!present || isSaving) return;
-
-    setIsSaving(true);
-
-    try {
-      const updatedResult = await saveAnalysisGaps(analysisStem, present);
-
-      if (activeVersionId) {
-        setDetectionHistory(prev =>
-          prev.map(version =>
-            version.id === activeVersionId
-              ? {
-                  ...version,
-                  result: updatedResult,
-                }
-              : version,
-          ),
-        );
-      } else {
-        // No detection run yet, create a "version 1" from manual edits
-        const newVersion: DetectionVersion = {
-          id: crypto.randomUUID(),
-          versionNumber: 1,
-          timestamp: new Date(),
-          params: { sensitivity, minArea },
-          result: updatedResult,
-        };
-        setDetectionHistory([newVersion]);
-        setActiveVersionId(newVersion.id);
-      }
-
-      resetGapEdits();
-      clearGapInteractionState();
-      setVisibleGapIdsInViewport(new Set());
-    } catch (err: unknown) {
-      setToast(extractErrorMessage(err));
-    } finally {
-      setIsSaving(false);
-    }
-  }, [
-    present,
-    isSaving,
-    analysisStem,
-    activeVersionId,
-    sensitivity,
-    minArea,
-    resetGapEdits,
-    clearGapInteractionState,
-  ]);
 
   function switchVersion(id: string) {
     setActiveVersionId(id);
