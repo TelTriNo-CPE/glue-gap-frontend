@@ -18,7 +18,7 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/tiles': {
-        target: 'http://localhost:3030',
+        target: 'http://localhost:8080',
         changeOrigin: true,
       },
       // image-processor (port 8080) — specific paths before catch-all /exports

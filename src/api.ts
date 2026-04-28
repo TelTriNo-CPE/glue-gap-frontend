@@ -11,7 +11,7 @@ export async function deleteFile(key: string): Promise<void> {
 }
 
 export const getDziUrl = (stem: string) =>
-  `/tiles/${stem}/${stem}.dzi`;
+  `/tiles/${stem}.dzi`;
 
 export async function downloadExcel(key: string, stem: string) {
   await axios.post('/exports/excel', { key });

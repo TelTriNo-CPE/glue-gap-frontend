@@ -1068,7 +1068,7 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
         hiddenGapIndices={hiddenGapIndices}
         stem={analysisStem}
         fileKey={fileKey}
-        imageSrc={localImageSrc ?? `/tiles/${analysisStem}/${fileKey}`}
+        imageSrc={localImageSrc ?? `/tiles/${fileKey}`}
         imageSize={result?.image_size ?? imageSize}
         outlineColor={outlineColor}
         fillColor={fillColor}

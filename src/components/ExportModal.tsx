@@ -60,6 +60,7 @@ async function tryLoadSourceImage(stem: string, fileKey?: string, explicitSrc?: 
   }
 
   if (fileKey) {
+    urls.push(`/tiles/${fileKey}`);
     urls.push(`/tiles/${stem}/${fileKey}`);
     // If it's a full URL already
     if (fileKey.startsWith('http') || fileKey.startsWith('/')) {
@@ -68,6 +69,9 @@ async function tryLoadSourceImage(stem: string, fileKey?: string, explicitSrc?: 
   }
 
   urls.push(
+    `/tiles/${stem}.jpg`,
+    `/tiles/${stem}.jpeg`,
+    `/tiles/${stem}.png`,
     `/tiles/${stem}/${stem}.jpg`,
     `/tiles/${stem}/${stem}.jpeg`,
     `/tiles/${stem}/${stem}.png`,
