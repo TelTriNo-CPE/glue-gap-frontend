@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import ExcelJS from 'exceljs';
 import type { Gap } from '../types';
 
@@ -492,9 +493,9 @@ export default function ExportModal({
     );
   }
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
       onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div className="relative w-full max-w-xl mx-4 max-h-[90vh] flex flex-col bg-gray-900 rounded-2xl shadow-2xl border border-gray-700/80 overflow-hidden">
@@ -749,6 +750,7 @@ export default function ExportModal({
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
