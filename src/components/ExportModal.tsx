@@ -7,7 +7,6 @@ import type { Gap } from '../types';
 const AREA_FACTOR   = 0.871076;    // µm² per px²
 const LENGTH_FACTOR = 0.9333146;   // µm per px
 
-const MAX_CANVAS_DIM = 4096;       // cap for image export canvas
 const THUMB_PX       = 72;         // thumbnail height/width in Excel (px)
 const THUMB_PADDING  = 0.5;        // fraction of equiv_radius to add as crop padding
 
@@ -18,6 +17,8 @@ interface ExportModalProps {
   selectedGapIds: Set<number>;
   hiddenGapIndices: Set<number>;
   stem: string;
+  fileKey?: string;
+  imageSrc?: string; // Explicit source URL
   imageSize: { width: number; height: number } | null;
   outlineColor: string;
   fillColor: string;
@@ -25,24 +26,68 @@ interface ExportModalProps {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * Strictly loads an image and awaits its onload event.
+ */
 function loadImg(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
+    console.log(`[Export] Attempting to load image: ${url}`);
     const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`Cannot load ${url}`));
+    img.crossOrigin = 'anonymous'; 
+    
+    img.onload = () => {
+      console.log(`[Export] Successfully loaded image: ${url} (${img.width}x${img.height})`);
+      resolve(img);
+    };
+    
+    img.onerror = (e) => {
+      console.error(`[Export] Failed to load image: ${url}`, e);
+      reject(new Error(`Cannot load ${url}`));
+    };
+    
     img.src = url;
   });
 }
 
-async function tryLoadSourceImage(stem: string): Promise<HTMLImageElement | null> {
-  const urls = [
+/** 
+ * Attempt to load the original source image from various potential paths.
+ */
+async function tryLoadSourceImage(stem: string, fileKey?: string, explicitSrc?: string): Promise<HTMLImageElement | null> {
+  const urls = [];
+  
+  if (explicitSrc) {
+    urls.push(explicitSrc);
+  }
+
+  if (fileKey) {
+    urls.push(`/tiles/${stem}/${fileKey}`);
+    // If it's a full URL already
+    if (fileKey.startsWith('http') || fileKey.startsWith('/')) {
+      urls.push(fileKey);
+    }
+  }
+
+  urls.push(
     `/tiles/${stem}/${stem}.jpg`,
     `/tiles/${stem}/${stem}.jpeg`,
     `/tiles/${stem}/${stem}.png`,
-  ];
-  for (const url of urls) {
-    try { return await loadImg(url); } catch { /* try next */ }
+    `/tiles/${stem}/source.jpg`,
+    `/tiles/${stem}/original.jpg`,
+  );
+
+  // Remove duplicates and empty strings
+  const uniqueUrls = Array.from(new Set(urls.filter(Boolean)));
+
+  for (const url of uniqueUrls) {
+    try { 
+      const img = await loadImg(url!); 
+      if (img.width > 0 && img.height > 0) return img;
+    } catch { 
+      /* try next */ 
+    }
   }
+  
+  console.error(`[Export] All image source candidates failed for stem=${stem}, fileKey=${fileKey}`);
   return null;
 }
 
@@ -70,38 +115,86 @@ function gapBBox(gap: Gap, imgW: number, imgH: number) {
 }
 
 /** Crop a gap thumbnail from the source image, returns base64 JPEG (no prefix). */
-async function makeThumbnail(src: HTMLImageElement, bbox: ReturnType<typeof gapBBox>): Promise<string> {
-  const c = document.createElement('canvas');
+async function makeThumbnail(
+  src: HTMLImageElement,
+  gap: Gap,
+  imgW: number,
+  imgH: number,
+  outlineColor: string,
+  fillColor: string,
+): Promise<string> {
+  const bbox = gapBBox(gap, imgW, imgH);
+  
+  // Use an off-screen canvas
+  const c = typeof OffscreenCanvas !== 'undefined' 
+    ? new OffscreenCanvas(THUMB_PX, THUMB_PX) as unknown as HTMLCanvasElement
+    : document.createElement('canvas');
+    
   c.width = THUMB_PX; c.height = THUMB_PX;
   const ctx = c.getContext('2d')!;
+  
+  // 1. Background
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, THUMB_PX, THUMB_PX);
+  
   const scale = Math.min(THUMB_PX / bbox.w, THUMB_PX / bbox.h);
   const dw = bbox.w * scale, dh = bbox.h * scale;
-  ctx.drawImage(src, bbox.x, bbox.y, bbox.w, bbox.h, (THUMB_PX - dw) / 2, (THUMB_PX - dh) / 2, dw, dh);
-  return c.toDataURL('image/jpeg', 0.85).replace(/^data:image\/jpeg;base64,/, '');
+  const dx = (THUMB_PX - dw) / 2;
+  const dy = (THUMB_PX - dh) / 2;
+
+  // 2. Draw base photo crop
+  ctx.drawImage(src, bbox.x, bbox.y, bbox.w, bbox.h, dx, dy, dw, dh);
+
+  // 3. Gap Overlay (Mask + Outline)
+  drawGap(ctx, gap, scale, scale, true, true, outlineColor, fillColor, -bbox.x, -bbox.y, dx, dy, 1.5);
+
+  if (c instanceof HTMLCanvasElement) {
+    return c.toDataURL('image/jpeg', 0.85).replace(/^data:image\/jpeg;base64,/, '');
+  } else {
+    // OffscreenCanvas path
+    const blob = await (c as unknown as OffscreenCanvas).convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        resolve(base64.split(',')[1]);
+      };
+      reader.readAsDataURL(blob);
+    });
+  }
 }
 
-/** Draw a gap polygon on a canvas context (already scaled). */
+/** Draw a gap polygon on a canvas context. */
 function drawGap(
-  ctx: CanvasRenderingContext2D,
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   gap: Gap,
   sx: number, sy: number,
   drawOutlines: boolean, drawMasks: boolean,
   outlineColor: string, fillColor: string,
+  ox = 0, oy = 0, // offset in image pixels
+  tx = 0, ty = 0, // offset in canvas pixels
+  lineWidth?: number,
 ) {
   const coords = gap.coordinates;
   if (!coords || coords.length < 4) return;
+  
   ctx.beginPath();
-  ctx.moveTo(coords[0] * sx, coords[1] * sy);
-  for (let i = 2; i < coords.length; i += 2) ctx.lineTo(coords[i] * sx, coords[i + 1] * sy);
+  ctx.moveTo(tx + (coords[0] + ox) * sx, ty + (coords[1] + oy) * sy);
+  for (let i = 2; i < coords.length; i += 2) {
+    ctx.lineTo(tx + (coords[i] + ox) * sx, ty + (coords[i + 1] + oy) * sy);
+  }
   ctx.closePath();
+  
   if (drawMasks)    { ctx.fillStyle = fillColor + '55'; ctx.fill(); }
-  if (drawOutlines) { ctx.strokeStyle = outlineColor; ctx.lineWidth = 2 / sx; ctx.stroke(); }
+  if (drawOutlines) {
+    ctx.strokeStyle = outlineColor;
+    ctx.lineWidth = lineWidth ?? (2 / sx);
+    ctx.stroke();
+  }
 }
 
-/** Draw a rounded rectangle via arc (compatible with all browsers). */
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+/** Draw a rounded rectangle via arc. */
+function roundRect(ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   r = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -120,6 +213,8 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 
 interface ImgParams {
   stem: string;
+  fileKey?: string;
+  imageSrc?: string;
   exportGaps: Gap[];
   imageSize: { width: number; height: number } | null;
   format: 'jpeg' | 'png';
@@ -131,38 +226,47 @@ interface ImgParams {
 }
 
 async function runImageExport(p: ImgParams): Promise<void> {
-  const imgW = p.imageSize?.width  ?? 1024;
-  const imgH = p.imageSize?.height ?? 768;
-
-  const scale = Math.min(1, MAX_CANVAS_DIM / Math.max(imgW, imgH));
-  const cW = Math.round(imgW * scale);
-  const cH = Math.round(imgH * scale);
-
-  const canvas = document.createElement('canvas');
-  canvas.width = cW; canvas.height = cH;
-  const ctx = canvas.getContext('2d')!;
-
-  // Background / source image
-  const src = await tryLoadSourceImage(p.stem);
-  if (src) {
-    ctx.drawImage(src, 0, 0, cW, cH);
-  } else {
-    ctx.fillStyle = '#e8e8e8';
-    ctx.fillRect(0, 0, cW, cH);
-    ctx.fillStyle = '#888';
-    ctx.font = `${Math.round(cW / 40)}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText('Source image unavailable — gap overlay only', cW / 2, cH / 2);
+  console.log('[Export] Starting full image export...', { stem: p.stem, fileKey: p.fileKey, imageSrc: p.imageSrc });
+  
+  // 1. Wait for the original image to be fully loaded
+  const src = await tryLoadSourceImage(p.stem, p.fileKey, p.imageSrc);
+  
+  if (!src) {
+    console.error('[Export] runImageExport: Original image source could not be loaded.');
   }
 
-  // Gap overlays
+  // 2. Set canvas dimensions to perfectly match the original image (or fallback)
+  const imgW = src ? src.width  : (p.imageSize?.width  ?? 1024);
+  const imgH = src ? src.height : (p.imageSize?.height ?? 768);
+
+  const canvas = document.createElement('canvas');
+  canvas.width = imgW; 
+  canvas.height = imgH;
+  const ctx = canvas.getContext('2d')!;
+
+  // 3. Draw base layer (PHOTO FIRST)
+  if (src) {
+    ctx.drawImage(src, 0, 0);
+  } else {
+    // If photo fails to load, draw placeholder
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, imgW, imgH);
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${Math.round(imgW / 30)}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Original image unavailable', imgW / 2, imgH / 2 - 20);
+    ctx.font = `${Math.round(imgW / 50)}px sans-serif`;
+    ctx.fillText('Exporting detections only', imgW / 2, imgH / 2 + 30);
+  }
+
+  // 4. Draw gap overlays (masks and outlines)
   if ((p.drawOutlines || p.drawMasks) && p.exportGaps.length > 0) {
     for (const gap of p.exportGaps) {
-      drawGap(ctx, gap, scale, scale, p.drawOutlines, p.drawMasks, p.outlineColor, p.fillColor);
+      drawGap(ctx, gap, 1, 1, p.drawOutlines, p.drawMasks, p.outlineColor, p.fillColor);
     }
   }
 
-  // Analysis label
+  // 5. Add Analysis Label
   if (p.addLabel && p.exportGaps.length > 0) {
     const totalArea   = p.exportGaps.reduce((s, g) => s + g.area_px, 0);
     const avgRadius   = p.exportGaps.reduce((s, g) => s + g.equiv_radius_px, 0) / p.exportGaps.length;
@@ -176,18 +280,18 @@ async function runImageExport(p: ImgParams): Promise<void> {
       `Radius Range:  ${(minRadius * LENGTH_FACTOR).toFixed(2)} – ${(maxRadius * LENGTH_FACTOR).toFixed(2)} µm`,
     ];
 
-    const fontSize = Math.max(11, Math.min(18, Math.round(cW / 55)));
+    const fontSize = Math.max(14, Math.round(imgW / 70));
     ctx.font = `bold ${fontSize}px "Courier New", monospace`;
-    const lineH  = fontSize * 1.65;
-    const pad    = fontSize * 0.9;
+    const lineH  = fontSize * 1.5;
+    const pad    = fontSize * 0.8;
     const maxW   = Math.max(...lines.map(l => ctx.measureText(l).width));
     const boxW   = maxW + pad * 2;
     const boxH   = lines.length * lineH + pad * 1.5;
-    const bx     = cW - boxW - 14;
-    const by     = cH - boxH - 14;
+    const bx     = imgW - boxW - pad * 2;
+    const by     = imgH - boxH - pad * 2;
 
-    ctx.fillStyle = 'rgba(0,0,0,0.68)';
-    roundRect(ctx, bx, by, boxW, boxH, 8);
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
+    roundRect(ctx, bx, by, boxW, boxH, fontSize / 2);
     ctx.fill();
 
     ctx.fillStyle = '#fff';
@@ -197,35 +301,42 @@ async function runImageExport(p: ImgParams): Promise<void> {
     });
   }
 
-  // Download
+  // 6. Export Final combined image
   const mime = p.format === 'jpeg' ? 'image/jpeg' : 'image/png';
-  canvas.toBlob(
-    blob => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const a = Object.assign(document.createElement('a'), {
-        href: url, download: `${p.stem}-export.${p.format === 'jpeg' ? 'jpg' : 'png'}`,
-      });
-      a.click();
-      URL.revokeObjectURL(url);
-    },
-    mime,
-    p.format === 'jpeg' ? 0.92 : undefined,
-  );
+  const quality = p.format === 'jpeg' ? 0.95 : undefined;
+
+  canvas.toBlob(blob => {
+    if (!blob) {
+      console.error('[Export] Failed to create blob from canvas.');
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), {
+      href: url, download: `${p.stem}-export.${p.format === 'jpeg' ? 'jpg' : 'png'}`,
+    });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  }, mime, quality);
 }
 
 // ─── Excel Export ─────────────────────────────────────────────────────────────
 
 interface XlsxParams {
   stem: string;
+  fileKey?: string;
+  imageSrc?: string;
   exportGaps: Gap[];
   imageSize: { width: number; height: number } | null;
   columns: { gapNo: boolean; areaPx: boolean; areaUm: boolean; radiusPx: boolean; radiusUm: boolean; thumbnail: boolean };
   statistics: { average: boolean; min: boolean; max: boolean };
+  outlineColor: string;
+  fillColor: string;
 }
 
 async function runExcelExport(p: XlsxParams): Promise<void> {
+  console.log('[Export] Starting Excel export...', { stem: p.stem, fileKey: p.fileKey, imageSrc: p.imageSrc });
   const wb = new ExcelJS.Workbook();
+  // ... (rest of metadata)
   wb.creator = 'Glue Gap Analyser';
   wb.created = new Date();
 
@@ -289,7 +400,7 @@ async function runExcelExport(p: XlsxParams): Promise<void> {
 
   // ── Try to load source image for thumbnails ────────────────────────────────────
   let srcImg: HTMLImageElement | null = null;
-  if (p.columns.thumbnail) srcImg = await tryLoadSourceImage(p.stem);
+  if (p.columns.thumbnail) srcImg = await tryLoadSourceImage(p.stem, p.fileKey, p.imageSrc);
 
   const thumbColPos = colDefs.findIndex(d => d.key === 'thumbnail');   // 0-based
   const ROW_H_THUMB = 58; // Excel row height in pts (≈ THUMB_PX * 0.75)
@@ -327,14 +438,21 @@ async function runExcelExport(p: XlsxParams): Promise<void> {
       row.height = ROW_H_THUMB;
       if (srcImg && p.imageSize) {
         try {
-          const bbox  = gapBBox(gap, p.imageSize.width, p.imageSize.height);
-          const b64   = await makeThumbnail(srcImg, bbox);
+          const b64 = await makeThumbnail(
+            srcImg,
+            gap,
+            p.imageSize.width,
+            p.imageSize.height,
+            p.outlineColor,
+            p.fillColor,
+          );
           const imgId = wb.addImage({ base64: b64, extension: 'jpeg' });
           ws.addImage(imgId, {
-            tl: { col: thumbColPos,     row: rowIdx - 1 },
-            br: { col: thumbColPos + 1, row: rowIdx },
+            tl: { col: thumbColPos,     row: rowIdx - 1 } as any,
+            br: { col: thumbColPos + 1, row: rowIdx } as any,
           });
-        } catch {
+        } catch (err) {
+          console.error('Thumbnail generation failed:', err);
           const cell = row.getCell(thumbColPos + 1);
           cell.value = 'N/A';
           cell.style = { font: { italic: true, color: { argb: 'FF9CA3AF' }, size: 9 }, alignment: { vertical: 'middle', horizontal: 'center' } };
@@ -417,13 +535,13 @@ async function runExcelExport(p: XlsxParams): Promise<void> {
 
 export default function ExportModal({
   isOpen, onClose, gaps, selectedGapIds, hiddenGapIndices,
-  stem, imageSize, outlineColor, fillColor,
+  stem, fileKey, imageSrc, imageSize, outlineColor, fillColor,
 }: ExportModalProps) {
   const [activeTab,        setActiveTab]        = useState<'image' | 'excel'>('image');
   const [exportScope,      setExportScope]      = useState<'all' | 'selected'>('all');
   const [imageFormat,      setImageFormat]      = useState<'jpeg' | 'png'>('jpeg');
   const [drawOutlines,     setDrawOutlines]     = useState(true);
-  const [drawMasks,        setDrawMasks]        = useState(false);
+  const [drawMasks,        setDrawMasks]        = useState(true);
   const [addAnalysisLabel, setAddAnalysisLabel] = useState(true);
   const [columns, setColumns] = useState({
     gapNo: true, areaPx: true, areaUm: true, radiusPx: true, radiusUm: true, thumbnail: true,
@@ -463,9 +581,31 @@ export default function ExportModal({
     try {
       const exportGaps = getExportGaps();
       if (activeTab === 'image') {
-        await runImageExport({ stem, exportGaps, imageSize, format: imageFormat, drawOutlines, drawMasks, addLabel: addAnalysisLabel, outlineColor, fillColor });
+        await runImageExport({ 
+          stem, 
+          fileKey,
+          imageSrc,
+          exportGaps, 
+          imageSize, 
+          format: imageFormat, 
+          drawOutlines, 
+          drawMasks, 
+          addLabel: addAnalysisLabel, 
+          outlineColor, 
+          fillColor 
+        });
       } else {
-        await runExcelExport({ stem, exportGaps, imageSize, columns, statistics });
+        await runExcelExport({ 
+          stem, 
+          fileKey,
+          imageSrc,
+          exportGaps, 
+          imageSize, 
+          columns, 
+          statistics,
+          outlineColor,
+          fillColor
+        });
       }
       onClose();
     } catch (err) {

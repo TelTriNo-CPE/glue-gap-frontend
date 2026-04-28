@@ -30,6 +30,7 @@ interface Props {
   selectionMode: SelectionMode;
   onInfoToast?: (message: string) => void;
   onObjectSelectBbox?: (bbox: BoundingBox) => void;
+  onImageSizeReady?: (size: { width: number; height: number }) => void;
 }
 
 // ─── Drawing constants ────────────────────────────────────────────────────────
@@ -102,7 +103,13 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, selectedColor, brushSize, onGapsModified, imageSize, wandTolerance, selectionMode, onInfoToast, onObjectSelectBbox }: Props) {
+export default function OsdViewer({ 
+  stem, gaps, hiddenGapIndices, hideUnselected, isOutlineOnly, showMinimap, 
+  isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, 
+  onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, 
+  selectedColor, brushSize, onGapsModified, imageSize, wandTolerance, 
+  selectionMode, onInfoToast, onObjectSelectBbox, onImageSizeReady 
+}: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
   const viewerRef     = useRef<OpenSeadragon.Viewer | null>(null);
@@ -621,6 +628,14 @@ export default function OsdViewer({ stem, gaps, hiddenGapIndices, hideUnselected
       setTilesReady(true);
       stopTimer();
       scheduleFullRedraw();
+      
+      const tImg = viewer.world.getItemAt(0);
+      if (tImg) {
+        const s = tImg.getContentSize();
+        if (s && s.x && s.y) {
+          onImageSizeReady?.({ width: s.x, height: s.y });
+        }
+      }
     });
 
     // ── DZI availability polling ─────────────────────────────────────────────

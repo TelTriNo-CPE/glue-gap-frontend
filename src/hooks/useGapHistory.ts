@@ -41,8 +41,6 @@ export default function useGapHistory(baseState: Gap[] | null, limit = 30) {
 
   const commit = useCallback(
     (nextState: Gap[]) => {
-      let willCommit = false;
-
       setHistory((currentHistory) => {
         const currentState =
           currentHistory.present ?? baseStateRef.current ?? EMPTY_GAPS;

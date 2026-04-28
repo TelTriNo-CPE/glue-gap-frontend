@@ -11,6 +11,7 @@ import ExportModal from './ExportModal';
 
 interface Props {
   fileKey: string;
+  originalFile?: File | null;
   onReset: () => void;
 }
 
@@ -30,7 +31,17 @@ function getIsDesktop() {
   return typeof window !== 'undefined' && window.innerWidth >= DESKTOP_BREAKPOINT;
 }
 
-export default function AnalysisView({ fileKey, onReset }: Props) {
+export default function AnalysisView({ fileKey, originalFile, onReset }: Props) {
+  const [localImageSrc, setLocalImageSrc] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (originalFile) {
+      const url = URL.createObjectURL(originalFile);
+      setLocalImageSrc(url);
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [originalFile]);
+
   const [selectedGapIds, setSelectedGapIds] = useState<Set<number>>(new Set());
   const fileStem = fileKey.replace(/\.[^.]+$/, '');
   
@@ -65,6 +76,7 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
   const [selectedColor, setSelectedColor] = useState(DEFAULT_SELECTED_COLOR);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('add');
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const previousModeRef = useRef<ClickMode | null>(null);
   const selectionModeBeforeAltRef = useRef<SelectionMode>('add');
   // Holds the pre-detection and merged gaps so we can push them onto the
@@ -947,11 +959,12 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
               selectedColor={selectedColor}
               brushSize={brushSize}
               onGapsModified={handleGapsModified}
-              imageSize={result?.image_size ?? null}
+              imageSize={result?.image_size ?? imageSize}
               wandTolerance={wandTolerance}
               selectionMode={selectionMode}
               onInfoToast={setInfoToast}
               onObjectSelectBbox={handleObjectSelectBbox}
+              onImageSizeReady={setImageSize}
             />
           </div>
         </div>
@@ -1014,7 +1027,9 @@ export default function AnalysisView({ fileKey, onReset }: Props) {
         selectedGapIds={selectedGapIds}
         hiddenGapIndices={hiddenGapIndices}
         stem={analysisStem}
-        imageSize={result?.image_size ?? null}
+        fileKey={fileKey}
+        imageSrc={localImageSrc ?? `/tiles/${analysisStem}/${fileKey}`}
+        imageSize={result?.image_size ?? imageSize}
         outlineColor={outlineColor}
         fillColor={fillColor}
       />

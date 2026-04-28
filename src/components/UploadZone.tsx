@@ -28,7 +28,7 @@ function validateFile(file: File): string | null {
 }
 
 interface Props {
-  onSuccess: (key: string) => void;
+  onSuccess: (key: string, file: File) => void;
 }
 
 export default function UploadZone({ onSuccess }: Props) {
@@ -39,6 +39,7 @@ export default function UploadZone({ onSuccess }: Props) {
   const [uploadedKey, setUploadedKey] = useState('');
   const [uploadedName, setUploadedName] = useState('');
   const [uploadedSize, setUploadedSize] = useState(0);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const dragCounterRef = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -119,6 +120,7 @@ export default function UploadZone({ onSuccess }: Props) {
       });
       setUploadedKey(data.key);
       setUploadedName(data.originalName);
+      setUploadedFile(file);
       // Prefer native file.size (already set); only override if backend
       // returned a valid non-zero value.
       if (data.size > 0) setUploadedSize(data.size);
@@ -150,6 +152,7 @@ export default function UploadZone({ onSuccess }: Props) {
     setUploadedKey('');
     setUploadedName('');
     setUploadedSize(0);
+    setUploadedFile(null);
   }
 
   const zoneBase =
@@ -193,7 +196,7 @@ export default function UploadZone({ onSuccess }: Props) {
               {status === 'cancelling' ? 'Cancelling…' : 'Cancel'}
             </button>
             <button
-              onClick={() => onSuccess(uploadedKey)}
+              onClick={() => uploadedFile && onSuccess(uploadedKey, uploadedFile)}
               disabled={status === 'cancelling'}
               className="flex-1 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl transition-colors flex items-center justify-center gap-2"
             >
