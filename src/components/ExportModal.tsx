@@ -99,11 +99,15 @@ async function tryLoadSourceImage(stem: string, fileKey?: string, explicitSrc?: 
 function gapBBox(gap: Gap, imgW: number, imgH: number) {
   const pad = gap.equiv_radius_px * THUMB_PADDING + 12;
   const coords = gap.coordinates;
+  const isNormalized = coords.every(v => v >= 0 && v <= 1);
+
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   if (coords && coords.length >= 4) {
     for (let i = 0; i < coords.length; i += 2) {
-      minX = Math.min(minX, coords[i]);   maxX = Math.max(maxX, coords[i]);
-      minY = Math.min(minY, coords[i+1]); maxY = Math.max(maxY, coords[i+1]);
+      const x = isNormalized ? coords[i] * imgW : coords[i];
+      const y = isNormalized ? coords[i + 1] * imgH : coords[i + 1];
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
     }
   } else {
     const cx = gap.centroid_norm[0] * imgW;
@@ -127,8 +131,12 @@ async function makeThumbnail(
   outlineColor: string,
   fillColor: string,
 ): Promise<string> {
-  // bbox is in analysis pixel coordinates (imgW × imgH space)
-  const bbox = gapBBox(gap, imgW, imgH);
+  // [1] Ensure we have non-zero dimensions to avoid Division by Zero
+  const safeImgW = imgW || src.width  || 1024;
+  const safeImgH = imgH || src.height || 768;
+
+  // bbox is in analysis pixel coordinates (safeImgW × safeImgH space)
+  const bbox = gapBBox(gap, safeImgW, safeImgH);
 
   // Use an off-screen canvas
   const c = typeof OffscreenCanvas !== 'undefined'
@@ -138,7 +146,7 @@ async function makeThumbnail(
   c.width = THUMB_PX; c.height = THUMB_PX;
   const ctx = c.getContext('2d')!;
 
-  // [5] STEP 1: White background
+  // White background
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, THUMB_PX, THUMB_PX);
 
@@ -147,13 +155,11 @@ async function makeThumbnail(
   const dx = (THUMB_PX - dw) / 2;
   const dy = (THUMB_PX - dh) / 2;
 
-  // [5] STEP 2: Draw cropped source image.
+  // Draw cropped source image.
   // The bbox coordinates are in analysis pixel space. If the loaded image has
-  // different pixel dimensions (e.g. a proxy serving a lower-res tile), we
-  // must scale the source crop region accordingly so we extract the correct
-  // portion of whatever resolution src happens to be.
-  const srcScaleX = src.width  / imgW;
-  const srcScaleY = src.height / imgH;
+  // different pixel dimensions, scale the source crop region.
+  const srcScaleX = src.width  / safeImgW;
+  const srcScaleY = src.height / safeImgH;
   ctx.drawImage(
     src,
     bbox.x * srcScaleX, bbox.y * srcScaleY,
@@ -161,16 +167,13 @@ async function makeThumbnail(
     dx, dy, dw, dh,
   );
 
-  // [5] STEP 3: ONLY AFTER the image crop is drawn, overlay the gap polygon
-  // on the SAME ctx so it composites on top of the background.
-  // Gap coords are in analysis pixel space — the offset/scale math below
-  // maps them into the 72 px thumbnail coordinate system.
-  drawGap(ctx, gap, scale, scale, true, true, outlineColor, fillColor, -bbox.x, -bbox.y, dx, dy, 1.5);
+  // Overlay the gap polygon.
+  // Draw with sx=scale, sy=scale because drawGap will denormalize internally.
+  drawGap(ctx, gap, scale, scale, true, true, outlineColor, fillColor, -bbox.x, -bbox.y, dx, dy, 1.5, safeImgW, safeImgH);
 
   if (c instanceof HTMLCanvasElement) {
     return c.toDataURL('image/jpeg', 0.85).replace(/^data:image\/jpeg;base64,/, '');
   } else {
-    // OffscreenCanvas path
     const blob = await (c as unknown as OffscreenCanvas).convertToBlob({ type: 'image/jpeg', quality: 0.85 });
     return new Promise((resolve) => {
       const reader = new FileReader();
@@ -193,14 +196,20 @@ function drawGap(
   ox = 0, oy = 0, // offset in image pixels
   tx = 0, ty = 0, // offset in canvas pixels
   lineWidth?: number,
+  imgW?: number,
+  imgH?: number,
 ) {
   const coords = gap.coordinates;
   if (!coords || coords.length < 4) return;
   
+  const isNormalized = coords.every(v => v >= 0 && v <= 1);
+  const w = isNormalized ? (imgW ?? 1) : 1;
+  const h = isNormalized ? (imgH ?? 1) : 1;
+
   ctx.beginPath();
-  ctx.moveTo(tx + (coords[0] + ox) * sx, ty + (coords[1] + oy) * sy);
+  ctx.moveTo(tx + (coords[0] * w + ox) * sx, ty + (coords[1] * h + oy) * sy);
   for (let i = 2; i < coords.length; i += 2) {
-    ctx.lineTo(tx + (coords[i] + ox) * sx, ty + (coords[i + 1] + oy) * sy);
+    ctx.lineTo(tx + (coords[i] * w + ox) * sx, ty + (coords[i + 1] * h + oy) * sy);
   }
   ctx.closePath();
   
@@ -260,8 +269,8 @@ async function runImageExport(p: ImgParams): Promise<void> {
   // src.width/height here: the image proxy may serve a downscaled tile or
   // thumbnail at a completely different resolution, which would make the canvas
   // too small and push every gap polygon out of bounds (invisible).
-  const imgW = p.imageSize?.width  ?? 1024;
-  const imgH = p.imageSize?.height ?? 768;
+  const imgW = p.imageSize?.width  || 1024;
+  const imgH = p.imageSize?.height || 768;
 
   // [4] Create the single shared canvas context.  Every layer is drawn onto
   // this exact same ctx in strict sequential order.
@@ -296,9 +305,10 @@ async function runImageExport(p: ImgParams): Promise<void> {
   // [2] STEP 3: ONLY AFTER the background is fully drawn, loop through the
   // gaps and draw each polygon on top.  All coordinates are in image pixel
   // space (imgW × imgH), so sx=1, sy=1 is correct.
+  // Note: drawGap handles internal denormalization if coordinates are normalized [0,1].
   if ((p.drawOutlines || p.drawMasks) && p.exportGaps.length > 0) {
     for (const gap of p.exportGaps) {
-      drawGap(ctx, gap, 1, 1, p.drawOutlines, p.drawMasks, p.outlineColor, p.fillColor);
+      drawGap(ctx, gap, 1, 1, p.drawOutlines, p.drawMasks, p.outlineColor, p.fillColor, 0, 0, 0, 0, undefined, imgW, imgH);
     }
   }
 
