@@ -54,6 +54,7 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
   const result = activeVersion?.result ?? null;
   const [analyzing,        setAnalyzing]         = useState(false);
   const [parsing,          setParsing]           = useState(false);
+  const [merging,          setMerging]           = useState(false);
   const [analyzeError,     setAnalyzeError]      = useState<string | null>(null);
   const [toast,            setToast]             = useState<string | null>(null);
   const [infoToast,        setInfoToast]         = useState<string | null>(null);
@@ -75,6 +76,7 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
   const [fillColor, setFillColor] = useState(DEFAULT_FILL_COLOR);
   const [selectedColor, setSelectedColor] = useState(DEFAULT_SELECTED_COLOR);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('add');
+  const [shouldMerge, setShouldMerge] = useState(true);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
   const previousModeRef = useRef<ClickMode | null>(null);
@@ -648,15 +650,10 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
     setAnalyzing(true);
     setAnalyzeError(null);
 
-    // [1] Yield 50 ms so React can commit the overlay to the DOM and the browser
-    // can repaint the spinner BEFORE any heavy work or network call begins.
+    // [1] Yield so React can commit the overlay and the browser can repaint.
     await new Promise<void>(res => setTimeout(res, 50));
 
     try {
-      // [2] Payload is the image key (already stored on the server) plus analysis
-      // parameters — no base64 encoding of the image data occurs here.
-      // responseType: 'text' lets us control exactly when JSON.parse blocks
-      // the main thread (see setParsing below).
       const { data: raw } = await axios.post<string>(
         '/analyze-gaps',
         { key: fileKey, sensitivity, minArea },
@@ -666,40 +663,71 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
         },
       );
 
-      // Switch overlay to "Parsing…" and yield one frame so the browser can
-      // paint the message before JSON.parse blocks the thread.
       setAnalyzing(false);
       setParsing(true);
       await new Promise<void>(res => setTimeout(res, 32));
 
       const r: AnalysisResult = JSON.parse(raw);
+      setParsing(false);
+
+      let finalGaps: Gap[] = r.gaps.map(g => ({ ...g, source: 'auto' as const }));
+
+      if (shouldMerge && displayGaps.length > 0) {
+        setMerging(true);
+        await new Promise<void>(res => setTimeout(res, 32));
+
+        const existing = [...displayGaps];
+        const incoming = r.gaps;
+        const imgW = r.image_size.width;
+        const imgH = r.image_size.height;
+
+        let working = existing;
+        const CHUNK_SIZE = 50;
+
+        for (let i = 0; i < incoming.length; i += CHUNK_SIZE) {
+          const chunk = incoming.slice(i, i + CHUNK_SIZE);
+          for (const incomingGap of chunk) {
+            try {
+              const poly = gapToTurfPolygon(incomingGap, imgW, imgH);
+              // Use 'add' mode to geometrically union overlapping polygons
+              working = applyPolygon(working, poly, imgW, imgH, 'auto', 'add');
+            } catch {
+              working.push({ ...incomingGap, source: 'auto' as const });
+            }
+          }
+          // [3] Yield to the main thread every chunk to keep the UI responsive
+          // and the loading spinner animating.
+          await new Promise<void>(res => setTimeout(res, 0));
+        }
+        finalGaps = working;
+        setMerging(false);
+      }
 
       const newVersion: DetectionVersion = {
         id: crypto.randomUUID(),
         versionNumber: detectionHistory.length + 1,
         timestamp: new Date(),
         params: { sensitivity, minArea },
-        // Store the raw auto-detected result as the new version baseline.
-        // We purposefully skip massive synchronous Boolean merging with existing
-        // manual gaps to prevent the UI from freezing. The user can switch back
-        // to their previous manual version if they prefer.
-        result: r,
+        result: {
+          ...r,
+          gaps: finalGaps,
+          gap_count: finalGaps.length,
+        },
       };
+
       setDetectionHistory(prev => [...prev, newVersion]);
       setActiveVersionId(newVersion.id);
-
+      resetGapEdits(); // Reset history stack for the new version
       clearGapInteractionState();
       setVisibleGapIdsInViewport(new Set());
     } catch (err: unknown) {
-      // [4] Any error (timeout, network failure, parse error) clears the loading
-      // overlay and surfaces the message — the user is never left on a frozen screen.
       const message = extractErrorMessage(err);
       setAnalyzeError(message);
       setToast(message);
     } finally {
-      // Guaranteed: spinner always stops, regardless of success or failure.
       setAnalyzing(false);
       setParsing(false);
+      setMerging(false);
     }
   }
 
@@ -733,7 +761,7 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
     }
   }, [fileKey, sensitivity, minArea, handleGapsModified, selectionMode]);
 
-  const overlayVisible = analyzing || parsing;
+  const overlayVisible = analyzing || parsing || merging;
   const mobileLeftPanelWidth = Math.min(leftWidth, 320);
   const mobileRightPanelWidth = Math.min(rightWidth, 360);
 
@@ -816,12 +844,14 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
           </svg>
           <div className="text-center">
             <p className="text-white text-sm font-medium">
-              {parsing ? 'Parsing results…' : 'Detecting gaps…'}
+              {merging ? 'Merging results…' : parsing ? 'Parsing results…' : 'Detecting gaps…'}
             </p>
             <p className="text-gray-400 text-xs mt-1">
-              {parsing
-                ? 'Processing large dataset — please wait'
-                : 'Analysing image for glue gaps (up to 5 min)'}
+              {merging 
+                ? 'Combining AI detections with your manual work'
+                : parsing
+                  ? 'Processing large dataset — please wait'
+                  : 'Analysing image for glue gaps (up to 5 min)'}
             </p>
           </div>
         </div>
@@ -888,6 +918,8 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
             onWandToleranceChange={setWandTolerance}
             selectionMode={selectionMode}
             onSelectionModeChange={setSelectionMode}
+            shouldMerge={shouldMerge}
+            onShouldMergeChange={setShouldMerge}
             hasGaps={displayGaps.length > 0}
             onOpenExport={() => setExportModalOpen(true)}
           />

@@ -47,6 +47,8 @@ interface Props {
   onWandToleranceChange: (value: number) => void;
   selectionMode: SelectionMode;
   onSelectionModeChange: (mode: SelectionMode) => void;
+  shouldMerge: boolean;
+  onShouldMergeChange: (value: boolean) => void;
   hasGaps: boolean;
   onOpenExport: () => void;
 }
@@ -129,6 +131,8 @@ export default function Toolbar({
   onWandToleranceChange,
   selectionMode,
   onSelectionModeChange,
+  shouldMerge,
+  onShouldMergeChange,
   hasGaps,
   onOpenExport,
 }: Props) {
@@ -568,25 +572,47 @@ export default function Toolbar({
 
       {/* Step 2: Start Detection — shown after greyscale is applied, or when results exist */}
       {(isGreyscale || hasResult) && (
-        <button
-          onClick={onDetect}
-          disabled={analyzing}
-          className={btnClass}
-        >
-          {analyzing ? <Spinner /> : hasResult ? (
-            <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24"
-                 stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round"
-                d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.992 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
-            </svg>
-          ) : (
-            <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-              <path strokeLinecap="round" strokeLinejoin="round"
-                d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 15.803 7.5 7.5 0 0 0 15.803 15.803z" />
-            </svg>
-          )}
-          {analyzing ? 'Detecting…' : hasResult ? 'Re-run Detection' : 'Start Detection'}
-        </button>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onDetect}
+            disabled={analyzing}
+            className={btnClass}
+          >
+            {analyzing ? <Spinner /> : hasResult ? (
+              <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24"
+                   stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.992 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 15.803 7.5 7.5 0 0 0 15.803 15.803z" />
+              </svg>
+            )}
+            {analyzing ? 'Detecting…' : hasResult ? 'Re-run Detection' : 'Start Detection'}
+          </button>
+          <label className="flex items-center gap-2 px-4 py-1 cursor-pointer group">
+            <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${
+              shouldMerge ? 'bg-blue-600 border-blue-500' : 'border-gray-600 bg-gray-800 group-hover:border-gray-500'
+            }`}>
+              {shouldMerge && (
+                <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={4}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              )}
+              <input
+                type="checkbox"
+                className="hidden"
+                checked={shouldMerge}
+                onChange={e => onShouldMergeChange(e.target.checked)}
+              />
+            </div>
+            <span className="text-[11px] font-medium text-gray-400 group-hover:text-gray-200 transition-colors select-none">
+              Merge with existing manual gaps
+            </span>
+          </label>
+        </div>
       )}
 
       {/* Toggle Greyscale / Color */}
