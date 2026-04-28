@@ -305,7 +305,7 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
               <div>
                 <p className="text-lg font-medium text-gray-700">No gaps detected yet</p>
                 <p className="text-[11px] text-gray-400 mt-2 max-w-[200px]">
-                  Click &ldquo;Start Detection&rdquo; for auto-analysis, or use the manual tools
+                  Click 'Switch to Greyscale' first. Then, click 'Start Detection' for auto-analysis, or use the manual tools
                   (Wand, Brush) on the left to start creating gaps yourself.
                 </p>
               </div>
