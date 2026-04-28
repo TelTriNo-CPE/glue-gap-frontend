@@ -645,7 +645,14 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
   async function handleDetect() {
     setAnalyzing(true);
     setAnalyzeError(null);
+
+    // [1] Yield 50 ms so React can commit the overlay to the DOM and the browser
+    // can repaint the spinner BEFORE any heavy work or network call begins.
+    await new Promise<void>(res => setTimeout(res, 50));
+
     try {
+      // [2] Payload is the image key (already stored on the server) plus analysis
+      // parameters — no base64 encoding of the image data occurs here.
       // responseType: 'text' lets us control exactly when JSON.parse blocks
       // the main thread (see setParsing below).
       const { data: raw } = await axios.post<string>(
@@ -680,8 +687,17 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
       setDetectionHistory(prev => [...prev, newVersion]);
       setActiveVersionId(newVersion.id);
 
+      // [3] Yield once more before the (potentially heavy) merge computation so
+      // the "Parsing results…" overlay is visible and the browser stays responsive.
+      await new Promise<void>(res => setTimeout(res, 0));
+
+      // [3] Fast path: when the user hasn't made any manual edits the existing
+      // gaps are all source='auto'.  Passing an empty baseline to mergeIncomingGaps
+      // triggers its O(N) map branch instead of the O(N×M) polygon-intersection
+      // loop, dramatically reducing main-thread work for large detection results.
+      const hasManualGaps = currentGaps.some(g => g.source === 'manual');
       const mergedGaps = mergeIncomingGaps(
-        currentGaps,
+        hasManualGaps ? currentGaps : [],
         r.gaps,
         r.image_size.width,
         r.image_size.height,
@@ -695,6 +711,8 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
       clearGapInteractionState();
       setVisibleGapIdsInViewport(new Set());
     } catch (err: unknown) {
+      // [4] Any error (timeout, network failure, parse error) clears the loading
+      // overlay and surfaces the message — the user is never left on a frozen screen.
       const message = extractErrorMessage(err);
       setAnalyzeError(message);
       setToast(message);
