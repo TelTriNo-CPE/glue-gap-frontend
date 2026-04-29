@@ -3,10 +3,6 @@ import { createPortal } from 'react-dom';
 import ExcelJS from 'exceljs';
 import type { Gap } from '../types';
 
-// ─── Calibration (mirrors ResultsPanel.tsx) ───────────────────────────────────
-const AREA_FACTOR   = 0.871076;    // µm² per px²
-const LENGTH_FACTOR = 0.9333146;   // µm per px
-
 const THUMB_PX       = 72;         // thumbnail height/width in Excel (px)
 const THUMB_PADDING  = 0.5;        // fraction of equiv_radius to add as crop padding
 
@@ -22,6 +18,8 @@ interface ExportModalProps {
   imageSize: { width: number; height: number } | null;
   outlineColor: string;
   fillColor: string;
+  scaleFactor: number;
+  areaFactor: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -251,6 +249,8 @@ interface ImgParams {
   addLabel: boolean;
   outlineColor: string;
   fillColor: string;
+  scaleFactor: number;
+  areaFactor: number;
 }
 
 async function runImageExport(p: ImgParams): Promise<void> {
@@ -321,9 +321,9 @@ async function runImageExport(p: ImgParams): Promise<void> {
 
     const lines = [
       `Gaps detected: ${p.exportGaps.length}`,
-      `Total Area:    ${(totalArea * AREA_FACTOR).toFixed(1)} µm²`,
-      `Avg Radius:    ${(avgRadius * LENGTH_FACTOR).toFixed(2)} µm`,
-      `Radius Range:  ${(minRadius * LENGTH_FACTOR).toFixed(2)} – ${(maxRadius * LENGTH_FACTOR).toFixed(2)} µm`,
+      `Total Area:    ${(totalArea * p.areaFactor).toFixed(1)} µm²`,
+      `Avg Radius:    ${(avgRadius * p.scaleFactor).toFixed(2)} µm`,
+      `Radius Range:  ${(minRadius * p.scaleFactor).toFixed(2)} – ${(maxRadius * p.scaleFactor).toFixed(2)} µm`,
     ];
 
     const fontSize = Math.max(14, Math.round(imgW / 70));
@@ -382,6 +382,8 @@ interface XlsxParams {
   statistics: { average: boolean; min: boolean; max: boolean };
   outlineColor: string;
   fillColor: string;
+  scaleFactor: number;
+  areaFactor: number;
 }
 
 async function runExcelExport(p: XlsxParams): Promise<void> {
@@ -404,7 +406,7 @@ async function runExcelExport(p: XlsxParams): Promise<void> {
   const meta: Array<[string, string | number]> = [
     ['Filename',     p.stem],
     ['Export Date',  new Date().toLocaleString()],
-    ['Calibration',  `1 px = ${LENGTH_FACTOR} µm  |  1 px² = ${AREA_FACTOR} µm²`],
+    ['Calibration',  `1 px = ${p.scaleFactor.toFixed(7)} µm  |  1 px² = ${p.areaFactor.toFixed(7)} µm²`],
     ['Gap Count',    p.exportGaps.length],
   ];
   meta.forEach(([label, val], i) => {
@@ -468,9 +470,9 @@ async function runExcelExport(p: XlsxParams): Promise<void> {
 
       if (def.key === 'gapNo')    cell.value = gi + 1;
       if (def.key === 'areaPx')   cell.value = Math.round(gap.area_px);
-      if (def.key === 'areaUm')   cell.value = parseFloat((gap.area_px * AREA_FACTOR).toFixed(6));
+      if (def.key === 'areaUm')   cell.value = parseFloat((gap.area_px * p.areaFactor).toFixed(6));
       if (def.key === 'radiusPx') cell.value = parseFloat(gap.equiv_radius_px.toFixed(4));
-      if (def.key === 'radiusUm') cell.value = parseFloat((gap.equiv_radius_px * LENGTH_FACTOR).toFixed(6));
+      if (def.key === 'radiusUm') cell.value = parseFloat((gap.equiv_radius_px * p.scaleFactor).toFixed(6));
 
       if (def.fmt && def.key !== 'thumbnail') cell.numFmt = def.fmt;
 
@@ -528,15 +530,15 @@ async function runExcelExport(p: XlsxParams): Promise<void> {
     const statRows: Array<{ label: string; areaPx: number; areaUm: number; radiusPx: number; radiusUm: number }> = [];
     if (p.statistics.average) {
       const aP = sum(areas) / areas.length, rP = sum(radii) / radii.length;
-      statRows.push({ label: 'Average', areaPx: aP, areaUm: aP * AREA_FACTOR, radiusPx: rP, radiusUm: rP * LENGTH_FACTOR });
+      statRows.push({ label: 'Average', areaPx: aP, areaUm: aP * p.areaFactor, radiusPx: rP, radiusUm: rP * p.scaleFactor });
     }
     if (p.statistics.min) {
       const aP = Math.min(...areas), rP = Math.min(...radii);
-      statRows.push({ label: 'Minimum', areaPx: aP, areaUm: aP * AREA_FACTOR, radiusPx: rP, radiusUm: rP * LENGTH_FACTOR });
+      statRows.push({ label: 'Minimum', areaPx: aP, areaUm: aP * p.areaFactor, radiusPx: rP, radiusUm: rP * p.scaleFactor });
     }
     if (p.statistics.max) {
       const aP = Math.max(...areas), rP = Math.max(...radii);
-      statRows.push({ label: 'Maximum', areaPx: aP, areaUm: aP * AREA_FACTOR, radiusPx: rP, radiusUm: rP * LENGTH_FACTOR });
+      statRows.push({ label: 'Maximum', areaPx: aP, areaUm: aP * p.areaFactor, radiusPx: rP, radiusUm: rP * p.scaleFactor });
     }
 
     // Spacer row
@@ -587,6 +589,7 @@ async function runExcelExport(p: XlsxParams): Promise<void> {
 export default function ExportModal({
   isOpen, onClose, gaps, selectedGapIds, hiddenGapIndices,
   stem, fileKey, imageSrc, imageSize, outlineColor, fillColor,
+  scaleFactor, areaFactor,
 }: ExportModalProps) {
   const [activeTab,        setActiveTab]        = useState<'image' | 'excel'>('image');
   const [exportScope,      setExportScope]      = useState<'all' | 'selected'>('all');
@@ -635,30 +638,34 @@ export default function ExportModal({
       const exportGaps = getExportGaps();
       console.log(`[Export] handleExport — scope: ${exportScope}, gaps: ${exportGaps.length} / ${gaps.length} total`);
       if (activeTab === 'image') {
-        await runImageExport({ 
-          stem, 
+        await runImageExport({
+          stem,
           fileKey,
           imageSrc,
-          exportGaps, 
-          imageSize, 
-          format: imageFormat, 
-          drawOutlines, 
-          drawMasks, 
-          addLabel: addAnalysisLabel, 
-          outlineColor, 
-          fillColor 
+          exportGaps,
+          imageSize,
+          format: imageFormat,
+          drawOutlines,
+          drawMasks,
+          addLabel: addAnalysisLabel,
+          outlineColor,
+          fillColor,
+          scaleFactor,
+          areaFactor,
         });
       } else {
-        await runExcelExport({ 
-          stem, 
+        await runExcelExport({
+          stem,
           fileKey,
           imageSrc,
-          exportGaps, 
-          imageSize, 
-          columns, 
+          exportGaps,
+          imageSize,
+          columns,
           statistics,
           outlineColor,
-          fillColor
+          fillColor,
+          scaleFactor,
+          areaFactor,
         });
       }
       onClose();
@@ -886,7 +893,7 @@ export default function ExportModal({
                 </svg>
                 <p className="text-[11px] text-gray-400 leading-relaxed">
                   The spreadsheet always includes a <span className="text-gray-200 font-medium">Metadata</span> section at the top — filename, export date, and calibration constant&nbsp;
-                  (<span className="font-mono text-gray-200">1 px = {LENGTH_FACTOR} µm</span>).
+                  (<span className="font-mono text-gray-200">1 px = {scaleFactor.toFixed(7)} µm</span>).
                 </p>
               </div>
             </section>

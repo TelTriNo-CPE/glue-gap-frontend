@@ -51,6 +51,7 @@ interface Props {
   onShouldMergeChange: (value: boolean) => void;
   hasGaps: boolean;
   onOpenExport: () => void;
+  onOpenCalibration: () => void;
 }
 
 const COLOR_PRESETS = ['#ff0000', '#2563eb', '#16a34a', '#eab308', '#9333ea'];
@@ -135,6 +136,7 @@ export default function Toolbar({
   onShouldMergeChange,
   hasGaps,
   onOpenExport,
+  onOpenCalibration,
 }: Props) {
   return (
     <aside 
@@ -708,9 +710,20 @@ export default function Toolbar({
         </div>
       </div>
 
-      {/* Export — available if there are gaps */}
+      {/* Calibration & Export */}
       <>
         <Divider />
+        <button
+          onClick={onOpenCalibration}
+          className={btnClass}
+          title="Set the pixel-to-micrometre scale calibration"
+        >
+          <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round"
+              d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2Z" />
+          </svg>
+          Set Scale
+        </button>
         <button
           onClick={onOpenExport}
           disabled={!hasGaps}

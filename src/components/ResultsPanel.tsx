@@ -2,10 +2,6 @@ import { useRef, useEffect, useState, useMemo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { AnalysisResult, DetectionVersion, Gap } from '../types';
 
-// ─── Calibration constants ────────────────────────────────────────────────────
-const AREA_FACTOR = 0.871076; // µm² per px²
-const LENGTH_FACTOR = 0.9333146; // µm per px
-
 interface Props {
   width?: number;
   result: AnalysisResult | null;
@@ -24,9 +20,11 @@ interface Props {
   activeVersionId: string | null;
   onSwitchVersion: (id: string) => void;
   onDeleteVersion: (id: string) => void;
+  scaleFactor: number;
+  areaFactor: number;
 }
 
-export default function ResultsPanel({ width = 320, result, gaps, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, detectionHistory, activeVersionId, onSwitchVersion, onDeleteVersion }: Props) {
+export default function ResultsPanel({ width = 320, result, gaps, error, hiddenGapIndices, onShowAllGaps, onHideAllGaps, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, visibleGapIdsInViewport, detectionHistory, activeVersionId, onSwitchVersion, onDeleteVersion, scaleFactor, areaFactor }: Props) {
   const allHidden = gaps.length > 0 ? hiddenGapIndices.size === gaps.length : false;
   
   const [topSectionHeight, setTopSectionHeight] = useState(350);
@@ -76,19 +74,19 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
   }, [gaps, isSyncViewport, visibleGapIdsInViewport, activeTab, selectedGapIds]);
 
   const totalDisplayedAreaUm = useMemo(
-    () => displayIndices.reduce((sum, i) => sum + (gaps[i]?.area_px ?? 0), 0) * AREA_FACTOR,
-    [displayIndices, gaps],
+    () => displayIndices.reduce((sum, i) => sum + (gaps[i]?.area_px ?? 0), 0) * areaFactor,
+    [displayIndices, gaps, areaFactor],
   );
 
   const selectedAreaUm = useMemo(() => {
     let sum = 0;
     for (const i of selectedGapIds) sum += gaps[i]?.area_px ?? 0;
-    return sum * AREA_FACTOR;
-  }, [selectedGapIds, gaps]);
+    return sum * areaFactor;
+  }, [selectedGapIds, gaps, areaFactor]);
 
   const totalAbsoluteAreaUm = useMemo(
-    () => gaps.reduce((sum, g) => sum + g.area_px, 0) * AREA_FACTOR,
-    [gaps],
+    () => gaps.reduce((sum, g) => sum + g.area_px, 0) * areaFactor,
+    [gaps, areaFactor],
   );
 
   const dynamicRadiusStats = useMemo(() => {
@@ -213,19 +211,19 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
                     <div className="flex justify-between text-sm">
                       <dt className="text-gray-600">Average Radius</dt>
                       <dd className="font-medium text-gray-900">
-                        {dynamicRadiusStats.avg.toFixed(2)} px <span className="text-gray-400 font-normal">({(dynamicRadiusStats.avg * LENGTH_FACTOR).toFixed(2)} µm)</span>
+                        {dynamicRadiusStats.avg.toFixed(2)} px <span className="text-gray-400 font-normal">({(dynamicRadiusStats.avg * scaleFactor).toFixed(2)} µm)</span>
                       </dd>
                     </div>
                     <div className="flex justify-between text-sm">
                       <dt className="text-gray-600">Min Radius</dt>
                       <dd className="font-medium text-gray-900">
-                        {dynamicRadiusStats.min.toFixed(2)} px <span className="text-gray-400 font-normal">({(dynamicRadiusStats.min * LENGTH_FACTOR).toFixed(2)} µm)</span>
+                        {dynamicRadiusStats.min.toFixed(2)} px <span className="text-gray-400 font-normal">({(dynamicRadiusStats.min * scaleFactor).toFixed(2)} µm)</span>
                       </dd>
                     </div>
                     <div className="flex justify-between text-sm">
                       <dt className="text-gray-600">Max Radius</dt>
                       <dd className="font-medium text-gray-900">
-                        {dynamicRadiusStats.max.toFixed(2)} px <span className="text-gray-400 font-normal">({(dynamicRadiusStats.max * LENGTH_FACTOR).toFixed(2)} µm)</span>
+                        {dynamicRadiusStats.max.toFixed(2)} px <span className="text-gray-400 font-normal">({(dynamicRadiusStats.max * scaleFactor).toFixed(2)} µm)</span>
                       </dd>
                     </div>
                   </dl>
@@ -285,6 +283,7 @@ export default function ResultsPanel({ width = 320, result, gaps, error, hiddenG
                 activeTab={activeTab}
                 onTabChange={setActiveTab}
                 displayIndices={displayIndices}
+                areaFactor={areaFactor}
               />
             )}
           </div>
@@ -332,9 +331,10 @@ interface GapListProps {
   activeTab: 'all' | 'selected';
   onTabChange: (tab: 'all' | 'selected') => void;
   displayIndices: number[];
+  areaFactor: number;
 }
 
-function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, activeTab, onTabChange, displayIndices }: GapListProps) {
+function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelectGap, isSyncViewport, onToggleSyncViewport, activeTab, onTabChange, displayIndices, areaFactor }: GapListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
   const [lastSelectedIndex, setLastSelectedIndex] = useState<number | null>(null);
@@ -446,7 +446,7 @@ function GapList({ gaps, hiddenGapIndices, onToggleGap, selectedGapIds, onSelect
                   </span>
                   <span className={`text-xs font-mono text-right leading-tight ${isSelected ? 'text-yellow-700' : 'text-gray-400'}`}>
                     r={gap.equiv_radius_px.toFixed(1)} px<br/>
-                    {(gap.area_px * AREA_FACTOR).toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²<br/>
+                    {(gap.area_px * areaFactor).toLocaleString(undefined, { maximumFractionDigits: 2 })} µm²<br/>
                     <span className="opacity-60">({gap.area_px.toLocaleString()} px²)</span>
                   </span>
                 </div>

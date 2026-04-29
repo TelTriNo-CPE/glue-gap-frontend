@@ -1,10 +1,8 @@
 import type { RadiusStats } from '../types';
 
-const LENGTH_FACTOR = 0.9333146; // µm per px
+interface Props { stats: RadiusStats; scaleFactor: number; }
 
-interface Props { stats: RadiusStats; }
-
-export default function RadiusStatsPanel({ stats }: Props) {
+export default function RadiusStatsPanel({ stats, scaleFactor }: Props) {
   const rows: [string, number][] = [
     ['Min', stats.min],
     ['Max', stats.max],
@@ -16,7 +14,7 @@ export default function RadiusStatsPanel({ stats }: Props) {
   return (
     <dl className="flex flex-col gap-2">
       {rows.map(([label, value]) => {
-        const valueUm = value * LENGTH_FACTOR;
+        const valueUm = value * scaleFactor;
         return (
           <div key={label} className="flex justify-between text-sm">
             <dt className="text-gray-600">{label}</dt>

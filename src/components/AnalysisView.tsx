@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { detectPartialGaps, saveAnalysisGaps } from '../api';
 import { applyPolygon, gapToTurfPolygon } from '../utils/turfBridge';
@@ -8,6 +8,7 @@ import Toolbar from './Toolbar';
 import OsdViewer from './OsdViewer';
 import ResultsPanel from './ResultsPanel';
 import ExportModal from './ExportModal';
+import CalibrationModal, { type CalibrationParams } from './CalibrationModal';
 
 interface Props {
   fileKey: string;
@@ -78,7 +79,30 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('add');
   const [shouldMerge, setShouldMerge] = useState(true);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [calibrationOpen, setCalibrationOpen] = useState(false);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
+
+  // ── Calibration parameters ──────────────────────────────────────────────────
+  const [scaleNumerator,     setScaleNumerator]     = useState(1);
+  const [scaleDenominator,   setScaleDenominator]   = useState(10);
+  const [physicalScaleLength, setPhysicalScaleLength] = useState(2000);
+
+  const calibrationParams: CalibrationParams = {
+    scaleNumerator, scaleDenominator, physicalScaleLength,
+  };
+
+  // imageWidthPx from the active analysis result (or the OSD viewer's reported size)
+  const imageWidthPx = result?.image_size.width ?? imageSize?.width ?? 0;
+
+  const { scaleFactor, areaFactor } = useMemo(() => {
+    if (!imageWidthPx || scaleDenominator === 0 || scaleNumerator === 0) {
+      return { scaleFactor: 1, areaFactor: 1 };
+    }
+    const scaleBarLengthPx = imageWidthPx * (scaleNumerator / scaleDenominator);
+    if (scaleBarLengthPx === 0) return { scaleFactor: 1, areaFactor: 1 };
+    const sf = physicalScaleLength / scaleBarLengthPx;
+    return { scaleFactor: sf, areaFactor: sf * sf };
+  }, [imageWidthPx, scaleNumerator, scaleDenominator, physicalScaleLength]);
   const previousModeRef = useRef<ClickMode | null>(null);
   const selectionModeBeforeAltRef = useRef<SelectionMode>('add');
 
@@ -926,6 +950,7 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
             onShouldMergeChange={setShouldMerge}
             hasGaps={displayGaps.length > 0}
             onOpenExport={() => setExportModalOpen(true)}
+            onOpenCalibration={() => setCalibrationOpen(true)}
           />
         </div>
 
@@ -1080,6 +1105,8 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
               activeVersionId={activeVersionId}
               onSwitchVersion={switchVersion}
               onDeleteVersion={deleteVersion}
+              scaleFactor={scaleFactor}
+              areaFactor={areaFactor}
             />
           )}
         </div>
@@ -1106,7 +1133,23 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
         imageSize={result?.image_size ?? imageSize}
         outlineColor={outlineColor}
         fillColor={fillColor}
+        scaleFactor={scaleFactor}
+        areaFactor={areaFactor}
       />
+
+      {/* Calibration Modal — conditionally mounted so useState re-initialises on each open */}
+      {calibrationOpen && (
+        <CalibrationModal
+          params={calibrationParams}
+          onClose={() => setCalibrationOpen(false)}
+          onSave={({ scaleNumerator: n, scaleDenominator: d, physicalScaleLength: p }) => {
+            setScaleNumerator(n);
+            setScaleDenominator(d);
+            setPhysicalScaleLength(p);
+          }}
+          imageWidthPx={imageWidthPx || undefined}
+        />
+      )}
     </div>
   );
 }
