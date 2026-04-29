@@ -218,7 +218,7 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
             {/* Physical scale length — always visible */}
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
-                z — Physical Scale Length (µm)
+                z — Physical Scale Length (<span className="normal-case">µm</span>)
               </label>
               <input
                 type="text"

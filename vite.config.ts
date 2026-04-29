@@ -10,6 +10,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react(), tailwindcss()],
     server: {
+      port: 5300,
       proxy: {
         // api-gateway
         // Upload needs generous timeouts for 400 MB+ files
