@@ -83,26 +83,30 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
 
   // ── Calibration parameters ──────────────────────────────────────────────────
-  const [scaleNumerator,     setScaleNumerator]     = useState(1);
-  const [scaleDenominator,   setScaleDenominator]   = useState(10);
+  const [useDecimalRatio,     setUseDecimalRatio]     = useState(false);
+  const [scaleNumerator,      setScaleNumerator]      = useState(1);
+  const [scaleDenominator,    setScaleDenominator]    = useState(10);
+  const [decimalRatio,        setDecimalRatio]        = useState(0.1);   // 1/10 = 0.1
   const [physicalScaleLength, setPhysicalScaleLength] = useState(2000);
 
   const calibrationParams: CalibrationParams = {
-    scaleNumerator, scaleDenominator, physicalScaleLength,
+    useDecimalRatio, scaleNumerator, scaleDenominator, decimalRatio, physicalScaleLength,
   };
 
   // imageWidthPx from the active analysis result (or the OSD viewer's reported size)
   const imageWidthPx = result?.image_size.width ?? imageSize?.width ?? 0;
 
   const { scaleFactor, areaFactor } = useMemo(() => {
-    if (!imageWidthPx || scaleDenominator === 0 || scaleNumerator === 0) {
-      return { scaleFactor: 1, areaFactor: 1 };
-    }
-    const scaleBarLengthPx = imageWidthPx * (scaleNumerator / scaleDenominator);
-    if (scaleBarLengthPx === 0) return { scaleFactor: 1, areaFactor: 1 };
+    if (!imageWidthPx || physicalScaleLength <= 0) return { scaleFactor: 1, areaFactor: 1 };
+    const ratio = useDecimalRatio
+      ? decimalRatio
+      : (scaleDenominator === 0 ? 0 : scaleNumerator / scaleDenominator);
+    if (ratio <= 0) return { scaleFactor: 1, areaFactor: 1 };
+    const scaleBarLengthPx = imageWidthPx * ratio;
+    if (scaleBarLengthPx <= 0) return { scaleFactor: 1, areaFactor: 1 };
     const sf = physicalScaleLength / scaleBarLengthPx;
     return { scaleFactor: sf, areaFactor: sf * sf };
-  }, [imageWidthPx, scaleNumerator, scaleDenominator, physicalScaleLength]);
+  }, [imageWidthPx, useDecimalRatio, scaleNumerator, scaleDenominator, decimalRatio, physicalScaleLength]);
   const previousModeRef = useRef<ClickMode | null>(null);
   const selectionModeBeforeAltRef = useRef<SelectionMode>('add');
 
@@ -1142,9 +1146,11 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
         <CalibrationModal
           params={calibrationParams}
           onClose={() => setCalibrationOpen(false)}
-          onSave={({ scaleNumerator: n, scaleDenominator: d, physicalScaleLength: p }) => {
+          onSave={({ useDecimalRatio: u, scaleNumerator: n, scaleDenominator: d, decimalRatio: r, physicalScaleLength: p }) => {
+            setUseDecimalRatio(u);
             setScaleNumerator(n);
             setScaleDenominator(d);
+            setDecimalRatio(r);
             setPhysicalScaleLength(p);
           }}
           imageWidthPx={imageWidthPx || undefined}

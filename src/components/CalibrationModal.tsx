@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 
 export interface CalibrationParams {
+  useDecimalRatio: boolean;
   scaleNumerator: number;
   scaleDenominator: number;
+  decimalRatio: number;
   physicalScaleLength: number;
 }
 
@@ -18,42 +20,73 @@ interface Props {
  * CalibrationModal — always conditionally mounted by the parent so that
  * useState initialises fresh from `params` every time it opens.
  *
- * Math:
- *   scaleBarLengthPx = imageWidthPx × (x / y)
- *   scaleFactor      = z / scaleBarLengthPx   (µm per px)
- *   areaFactor       = scaleFactor²            (µm² per px²)
+ * Two input modes:
+ *   x/y mode:      scaleBarLengthPx = imageWidthPx × (x / y)
+ *   decimal mode:  scaleBarLengthPx = imageWidthPx × r
+ *
+ * In both cases:
+ *   scaleFactor = z / scaleBarLengthPx   (µm per px)
+ *   areaFactor  = scaleFactor²           (µm² per px²)
+ *
+ * All numeric fields use string state so the user can freely clear or type
+ * a decimal point mid-entry. Parsing happens only in the preview and on Apply.
  */
 export default function CalibrationModal({ onClose, params, onSave, imageWidthPx }: Props) {
-  // ── Local draft state stored as strings so inputs can be freely cleared ──
-  const [numerator,   setNumerator]   = useState(String(params.scaleNumerator));
-  const [denominator, setDenominator] = useState(String(params.scaleDenominator));
-  const [physical,    setPhysical]    = useState(String(params.physicalScaleLength));
+  // ── Local draft state (strings so "" and "0." are valid intermediate values) ──
+  const [useDecimal,   setUseDecimal]   = useState(params.useDecimalRatio);
+  const [numerator,    setNumerator]    = useState(String(params.scaleNumerator));
+  const [denominator,  setDenominator]  = useState(String(params.scaleDenominator));
+  const [decimalRatio, setDecimalRatio] = useState(String(params.decimalRatio));
+  const [physical,     setPhysical]     = useState(String(params.physicalScaleLength));
 
-  // Parse for preview — may be NaN when fields are empty
+  // ── Parse draft strings for preview and validation ────────────────────────
   const numN = parseFloat(numerator);
   const numD = parseFloat(denominator);
+  const numR = parseFloat(decimalRatio);
   const numP = parseFloat(physical);
-  const isValid = numN > 0 && numD > 0 && numP > 0 && isFinite(numN) && isFinite(numD) && isFinite(numP);
 
+  const isRatioValid = useDecimal
+    ? (numR > 0 && isFinite(numR))
+    : (numN > 0 && isFinite(numN) && numD > 0 && isFinite(numD));
+
+  const isValid = isRatioValid && numP > 0 && isFinite(numP);
+
+  const ratio = useDecimal ? numR : numN / numD;
   const scaleBarLengthPx =
-    isValid && imageWidthPx && imageWidthPx > 0
-      ? imageWidthPx * (numN / numD)
+    isValid && imageWidthPx && imageWidthPx > 0 && ratio > 0
+      ? imageWidthPx * ratio
       : null;
+  const scaleFactor = scaleBarLengthPx ? numP / scaleBarLengthPx : null;
+  const areaFactor  = scaleFactor !== null ? scaleFactor * scaleFactor : null;
 
-  const scaleFactor =
-    scaleBarLengthPx && scaleBarLengthPx > 0
-      ? numP / scaleBarLengthPx
-      : null;
-
-  const areaFactor = scaleFactor !== null ? scaleFactor * scaleFactor : null;
-
-  // Only commit to global state when the user explicitly clicks Apply
+  // ── Apply — only commits to global state on explicit user action ──────────
   function handleSave() {
     if (!isValid) return;
-    onSave({ scaleNumerator: numN, scaleDenominator: numD, physicalScaleLength: numP });
+    onSave({
+      useDecimalRatio:     useDecimal,
+      // Preserve the hidden mode's last good values so switching back is lossless
+      scaleNumerator:      (numN > 0 && isFinite(numN)) ? numN : params.scaleNumerator,
+      scaleDenominator:    (numD > 0 && isFinite(numD)) ? numD : params.scaleDenominator,
+      decimalRatio:        (numR > 0 && isFinite(numR)) ? numR : params.decimalRatio,
+      physicalScaleLength: numP,
+    });
     onClose();
   }
 
+  // ── Helper: border colour for a single field ──────────────────────────────
+  function fieldBorder(raw: string, parsed: number): string {
+    // While empty or mid-decimal (e.g. "0.") show neutral border
+    if (raw === '') return 'border-gray-700 focus:border-teal-500';
+    return parsed > 0 && isFinite(parsed)
+      ? 'border-gray-700 focus:border-teal-500'
+      : 'border-red-500 focus:border-red-400';
+  }
+
+  const baseInput =
+    'w-full bg-gray-800 border rounded-lg px-3 py-2 text-sm text-gray-200 font-mono ' +
+    'focus:outline-none transition-colors';
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return createPortal(
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
@@ -61,7 +94,7 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
     >
       <div className="relative w-full max-w-sm mx-4 bg-gray-900 rounded-2xl shadow-2xl border border-gray-700/80 overflow-hidden">
 
-        {/* ── Header ──────────────────────────────────────────────────────────── */}
+        {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700/80">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-teal-600 flex items-center justify-center shrink-0">
@@ -85,72 +118,120 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
           </button>
         </div>
 
-        {/* ── Body ────────────────────────────────────────────────────────────── */}
+        {/* ── Body ────────────────────────────────────────────────────────── */}
         <div className="px-6 py-5 space-y-5">
 
-          {/* Formula explanation */}
+          {/* Formula hint — updates with mode */}
           <div className="bg-gray-800/60 rounded-xl border border-gray-700/50 px-4 py-3">
             <p className="text-[11px] text-gray-400 leading-relaxed">
-              The scale bar covers{' '}
-              <span className="font-mono text-gray-200">x / y</span>{' '}
-              of the image width and represents{' '}
-              <span className="font-mono text-gray-200">z µm</span>{' '}
-              in physical space.
+              {useDecimal ? (
+                <>
+                  The scale bar covers{' '}
+                  <span className="font-mono text-gray-200">r</span>{' '}
+                  (decimal fraction) of the image width and represents{' '}
+                  <span className="font-mono text-gray-200">z µm</span>{' '}
+                  in physical space.
+                </>
+              ) : (
+                <>
+                  The scale bar covers{' '}
+                  <span className="font-mono text-gray-200">x / y</span>{' '}
+                  of the image width and represents{' '}
+                  <span className="font-mono text-gray-200">z µm</span>{' '}
+                  in physical space.
+                </>
+              )}
             </p>
           </div>
 
-          {/* Inputs */}
+          {/* Mode toggle */}
+          <label className="flex items-center gap-3 px-1 cursor-pointer select-none group">
+            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
+              useDecimal
+                ? 'bg-teal-600 border-teal-500'
+                : 'border-gray-600 bg-gray-800 group-hover:border-gray-500'
+            }`}>
+              {useDecimal && (
+                <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              )}
+              <input
+                type="checkbox"
+                className="hidden"
+                checked={useDecimal}
+                onChange={e => setUseDecimal(e.target.checked)}
+              />
+            </div>
+            <span className="text-xs font-medium text-gray-300 group-hover:text-white transition-colors">
+              Use single decimal ratio
+            </span>
+          </label>
+
+          {/* ── Ratio inputs (conditional on mode) ──────────────────────── */}
           <div className="space-y-4">
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
-                x — Scale Numerator
-              </label>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={numerator}
-                onChange={e => setNumerator(e.target.value)}
-                className={`w-full bg-gray-800 border rounded-lg px-3 py-2 text-sm
-                           text-gray-200 font-mono focus:outline-none transition-colors
-                           ${numerator !== '' && !(numN > 0) ? 'border-red-500 focus:border-red-400' : 'border-gray-700 focus:border-teal-500'}`}
-              />
-            </div>
+            {useDecimal ? (
+              <div>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
+                  r — Decimal Ratio
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={decimalRatio}
+                  onChange={e => setDecimalRatio(e.target.value)}
+                  placeholder="e.g. 0.1"
+                  className={`${baseInput} ${fieldBorder(decimalRatio, numR)}`}
+                />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
+                    x — Scale Numerator
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={numerator}
+                    onChange={e => setNumerator(e.target.value)}
+                    placeholder="e.g. 1"
+                    className={`${baseInput} ${fieldBorder(numerator, numN)}`}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
+                    y — Scale Denominator
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={denominator}
+                    onChange={e => setDenominator(e.target.value)}
+                    placeholder="e.g. 10"
+                    className={`${baseInput} ${fieldBorder(denominator, numD)}`}
+                  />
+                </div>
+              </>
+            )}
 
-            <div>
-              <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
-                y — Scale Denominator
-              </label>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={denominator}
-                onChange={e => setDenominator(e.target.value)}
-                className={`w-full bg-gray-800 border rounded-lg px-3 py-2 text-sm
-                           text-gray-200 font-mono focus:outline-none transition-colors
-                           ${denominator !== '' && !(numD > 0) ? 'border-red-500 focus:border-red-400' : 'border-gray-700 focus:border-teal-500'}`}
-              />
-            </div>
-
+            {/* Physical scale length — always visible */}
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
                 z — Physical Scale Length (µm)
               </label>
               <input
-                type="number"
-                min={1}
-                step={1}
+                type="text"
+                inputMode="decimal"
                 value={physical}
                 onChange={e => setPhysical(e.target.value)}
-                className={`w-full bg-gray-800 border rounded-lg px-3 py-2 text-sm
-                           text-gray-200 font-mono focus:outline-none transition-colors
-                           ${physical !== '' && !(numP > 0) ? 'border-red-500 focus:border-red-400' : 'border-gray-700 focus:border-teal-500'}`}
+                placeholder="e.g. 2000"
+                className={`${baseInput} ${fieldBorder(physical, numP)}`}
               />
             </div>
           </div>
 
-          {/* Computed result preview */}
+          {/* ── Live preview ─────────────────────────────────────────────── */}
           <div className="bg-teal-900/20 rounded-xl border border-teal-700/40 px-4 py-3">
             <p className="text-[10px] font-bold uppercase tracking-wider text-teal-400 mb-2">
               Computed Factors
@@ -182,7 +263,7 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
           </div>
         </div>
 
-        {/* ── Footer ──────────────────────────────────────────────────────────── */}
+        {/* ── Footer ──────────────────────────────────────────────────────── */}
         <div className="flex gap-2 px-6 py-4 border-t border-gray-700/80">
           <button
             onClick={onClose}
