@@ -35,7 +35,7 @@ export interface DetectionVersion {
   result: AnalysisResult;
 }
 
-export type ClickMode = 'select' | 'deselect' | 'pan' | 'brush' | 'eraser' | 'split' | 'magic-wand' | 'object-select' | 'quick-select' | 'lasso-freehand' | 'lasso-polygon';
+export type ClickMode = 'select' | 'deselect' | 'pan' | 'brush' | 'eraser' | 'split' | 'magic-wand' | 'object-select' | 'quick-select' | 'lasso-freehand' | 'lasso-polygon' | 'calibrate-line';
 
 export type SelectionMode = 'add' | 'subtract';
 

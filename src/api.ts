@@ -52,3 +52,7 @@ export async function saveAnalysisGaps(stem: string, gaps: Gap[]): Promise<Analy
   });
   return data;
 }
+
+export async function cleanupStem(stem: string): Promise<void> {
+  await axios.delete(`/upload/cleanup/${encodeURIComponent(stem)}`);
+}

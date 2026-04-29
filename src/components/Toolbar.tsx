@@ -275,6 +275,16 @@ export default function Toolbar({
             <ObjectSelectIcon />
             Scan
           </button>
+          <button
+            onClick={() => setClickMode('calibrate-line')}
+            className={`flex-1 min-w-[4.5rem] flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+              clickMode === 'calibrate-line' ? 'bg-cyan-600 text-white shadow-inner' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            }`}
+            title="Calibrate Line — draw a line over a scale bar to measure its pixel length"
+          >
+            <CalibrateLineIcon />
+            Calibrate
+          </button>
         </div>
       </div>
 
@@ -867,6 +877,15 @@ function PolygonIcon() {
   return (
     <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+    </svg>
+  );
+}
+
+/** Calibrate-line icon: a measurement line with tick marks at each end. */
+function CalibrateLineIcon() {
+  return (
+    <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 12h16M4 8v8M20 8v8" />
     </svg>
   );
 }

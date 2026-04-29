@@ -31,6 +31,8 @@ interface Props {
   onInfoToast?: (message: string) => void;
   onObjectSelectBbox?: (bbox: BoundingBox) => void;
   onImageSizeReady?: (size: { width: number; height: number }) => void;
+  calibrateLine?: { start: { x: number; y: number }; end: { x: number; y: number } } | null;
+  onCalibrateLineDrawn?: (start: { x: number; y: number }, end: { x: number; y: number }, pixelDist: number) => void;
 }
 
 // ─── Drawing constants ────────────────────────────────────────────────────────
@@ -108,7 +110,8 @@ export default function OsdViewer({
   isFullscreen, clickMode, grayscale, selectedGapIds, onSelectGap, 
   onVisibleGapsChange, layoutSignal = 0, outlineColor, fillColor, 
   selectedColor, brushSize, onGapsModified, imageSize, wandTolerance, 
-  selectionMode, onInfoToast, onObjectSelectBbox, onImageSizeReady 
+  selectionMode, onInfoToast, onObjectSelectBbox, onImageSizeReady,
+  calibrateLine, onCalibrateLineDrawn,
 }: Props) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const canvasRef     = useRef<HTMLCanvasElement | null>(null);
@@ -129,6 +132,8 @@ export default function OsdViewer({
   const freehandPointsRef = useRef<{ x: number; y: number }[]>([]);
   const polyPointsRef = useRef<{ x: number; y: number }[]>([]);
   const eraserStrokeRef = useRef<{ x: number; y: number }[]>([]);
+  const calibrateLineRef = useRef(calibrateLine ?? null);
+  const onCalibrateLineDrawnRef = useRef(onCalibrateLineDrawn);
 
   const [tilesReady,   setTilesReady]  = useState(false);
   const [tileError,    setTileError]   = useState<string | null>(null);
@@ -174,6 +179,8 @@ export default function OsdViewer({
   useEffect(() => { onObjectSelectBboxRef.current = onObjectSelectBbox; }, [onObjectSelectBbox]);
   useEffect(() => { fillColorRef.current = fillColor; }, [fillColor]);
   useEffect(() => { selectedColorRef.current = selectedColor; }, [selectedColor]);
+  useEffect(() => { calibrateLineRef.current = calibrateLine ?? null; }, [calibrateLine]);
+  useEffect(() => { onCalibrateLineDrawnRef.current = onCalibrateLineDrawn; }, [onCalibrateLineDrawn]);
 
   const startTimer = useCallback(() => {
     setElapsed(0);
@@ -377,6 +384,47 @@ export default function OsdViewer({
       }
     }
 
+    // ── Draw finalized calibrate line (persistent measurement overlay) ─────
+    const calLine = calibrateLineRef.current;
+    if (calLine) {
+      try {
+        const startVp = viewer.viewport.imageToViewportCoordinates(
+          new OpenSeadragon.Point(calLine.start.x, calLine.start.y),
+        );
+        const endVp = viewer.viewport.imageToViewportCoordinates(
+          new OpenSeadragon.Point(calLine.end.x, calLine.end.y),
+        );
+        const startPx = viewer.viewport.pixelFromPoint(startVp, true);
+        const endPx   = viewer.viewport.pixelFromPoint(endVp, true);
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(20, 184, 166, 1)';
+        ctx.lineWidth   = 2.5;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.moveTo(startPx.x, startPx.y);
+        ctx.lineTo(endPx.x, endPx.y);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(20, 184, 166, 1)';
+        for (const pt of [startPx, endPx]) {
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        const dist = Math.hypot(calLine.end.x - calLine.start.x, calLine.end.y - calLine.start.y);
+        const midX = (startPx.x + endPx.x) / 2;
+        const midY = (startPx.y + endPx.y) / 2;
+        ctx.font = 'bold 12px ui-sans-serif, sans-serif';
+        ctx.fillStyle = 'rgba(20, 184, 166, 1)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`${dist.toFixed(1)} px`, midX, midY - 7);
+        ctx.restore();
+      } catch { /* skip */ }
+    }
+
     // Report visible gap IDs to parent — only on resting/full-quality draws
     // to avoid hammering React state on every animation frame
     if (forceFullQuality && onVisibleGapsChangeRef.current) {
@@ -509,7 +557,7 @@ export default function OsdViewer({
         bCanvas.height = h;
       }
 
-      if (mode === 'split' || mode === 'lasso-freehand') {
+      if (mode === 'split' || mode === 'lasso-freehand' || mode === 'calibrate-line') {
         // Don't clear during a drag — canvas-drag draws the preview path
         if (!isPaintingRef.current) {
           const ctx = bCanvas.getContext('2d');
@@ -724,8 +772,8 @@ export default function OsdViewer({
 
       const currentClickMode = clickModeRef.current;
       if (currentClickMode === 'pan') return;
-      // Brush/eraser/split/object-select/quick-select handled by canvas-press/drag/release
-      if (currentClickMode === 'brush' || currentClickMode === 'eraser' || currentClickMode === 'split' || currentClickMode === 'object-select' || currentClickMode === 'quick-select') {
+      // Brush/eraser/split/object-select/quick-select/calibrate-line handled by canvas-press/drag/release
+      if (currentClickMode === 'brush' || currentClickMode === 'eraser' || currentClickMode === 'split' || currentClickMode === 'object-select' || currentClickMode === 'quick-select' || currentClickMode === 'calibrate-line') {
         event.preventDefaultAction = true;
         return;
       }
@@ -887,6 +935,13 @@ export default function OsdViewer({
         return;
       }
 
+      if (mode === 'calibrate-line') {
+        isPaintingRef.current = true;
+        lastPaintImgRef.current = { x: imgPoint.x, y: imgPoint.y };
+        event.preventDefaultAction = true;
+        return;
+      }
+
       marqueeStateRef.current = {
         isDragging: true,
         startImg: { x: imgPoint.x, y: imgPoint.y },
@@ -943,6 +998,67 @@ export default function OsdViewer({
             ctx.setLineDash([6, 4]);
             ctx.stroke();
             ctx.setLineDash([]);
+          }
+        }
+
+        event.preventDefaultAction = true;
+        return;
+      }
+
+      // Handle calibrate-line drag — teal preview line with live pixel-distance label
+      if (mode === 'calibrate-line' && isPaintingRef.current) {
+        const v = viewerRef.current;
+        if (!v || !v.isOpen()) return;
+
+        const viewportPoint = v.viewport.pointFromPixel(event.position, true);
+        const imgPoint = v.viewport.viewportToImageCoordinates(viewportPoint);
+        const startPt = lastPaintImgRef.current;
+        if (!startPt) return;
+
+        const bCanvas = brushCursorCanvasRef.current;
+        if (bCanvas) {
+          const osdCanvas = v.canvas as HTMLElement;
+          const w = osdCanvas.clientWidth;
+          const h = osdCanvas.clientHeight;
+          if (bCanvas.width !== w || bCanvas.height !== h) {
+            bCanvas.width = w;
+            bCanvas.height = h;
+          }
+          const ctx = bCanvas.getContext('2d');
+          if (ctx) {
+            ctx.clearRect(0, 0, w, h);
+
+            const startVp = v.viewport.imageToViewportCoordinates(
+              new OpenSeadragon.Point(startPt.x, startPt.y),
+            );
+            const endVp = v.viewport.imageToViewportCoordinates(
+              new OpenSeadragon.Point(imgPoint.x, imgPoint.y),
+            );
+            const startPx = v.viewport.pixelFromPoint(startVp, true);
+            const endPx   = v.viewport.pixelFromPoint(endVp, true);
+
+            ctx.beginPath();
+            ctx.moveTo(startPx.x, startPx.y);
+            ctx.lineTo(endPx.x, endPx.y);
+            ctx.strokeStyle = 'rgba(20, 184, 166, 0.9)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.fillStyle = 'rgba(20, 184, 166, 1)';
+            for (const pt of [startPx, endPx]) {
+              ctx.beginPath();
+              ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+              ctx.fill();
+            }
+
+            const dist = Math.hypot(imgPoint.x - startPt.x, imgPoint.y - startPt.y);
+            const midX = (startPx.x + endPx.x) / 2;
+            const midY = (startPx.y + endPx.y) / 2;
+            ctx.font = 'bold 12px ui-sans-serif, sans-serif';
+            ctx.fillStyle = 'rgba(20, 184, 166, 1)';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(`${dist.toFixed(1)} px`, midX, midY - 7);
           }
         }
 
@@ -1146,6 +1262,30 @@ export default function OsdViewer({
           }
         }
 
+        // Handle calibrate-line release — compute Euclidean distance and emit to parent
+        if (mode === 'calibrate-line' && lastPaintImgRef.current) {
+          const v = viewerRef.current;
+          if (v && v.isOpen()) {
+            const viewportPoint = v.viewport.pointFromPixel(event.position, true);
+            const endImgPoint = v.viewport.viewportToImageCoordinates(viewportPoint);
+            const startPt = lastPaintImgRef.current;
+            const dist = Math.hypot(endImgPoint.x - startPt.x, endImgPoint.y - startPt.y);
+            if (dist > 1) {
+              onCalibrateLineDrawnRef.current?.(
+                { x: startPt.x, y: startPt.y },
+                { x: endImgPoint.x, y: endImgPoint.y },
+                dist,
+              );
+            }
+          }
+          // Clear the preview line
+          const bCanvas = brushCursorCanvasRef.current;
+          if (bCanvas) {
+            const ctx = bCanvas.getContext('2d');
+            if (ctx) ctx.clearRect(0, 0, bCanvas.width, bCanvas.height);
+          }
+        }
+
         if (mode === 'brush' || mode === 'eraser' || mode === 'quick-select' || mode === 'lasso-freehand') {
           if (mode === 'lasso-freehand') {
             const pts = freehandPointsRef.current;
@@ -1311,10 +1451,10 @@ export default function OsdViewer({
     };
   }, [stem, startTimer, stopTimer, scheduleRedraw, scheduleFullRedraw, retrySignal]);
 
-  // Redraw whenever gap data or visibility changes
+  // Redraw whenever gap data, visibility, or calibration line changes
   useEffect(() => {
     scheduleFullRedraw();
-  }, [gaps, hiddenGapIndices, selectedGapIds, hideUnselected, isOutlineOnly, outlineColor, fillColor, selectedColor, scheduleFullRedraw]);
+  }, [gaps, hiddenGapIndices, selectedGapIds, hideUnselected, isOutlineOnly, outlineColor, fillColor, selectedColor, calibrateLine, scheduleFullRedraw]);
 
   // Safely handle fullscreen transitions — stagger redraws to let the DOM settle
   // before OSD reads container dimensions.
@@ -1392,7 +1532,7 @@ export default function OsdViewer({
       canvas.style.cursor = 'none';
     } else if (clickMode === 'magic-wand' || clickMode === 'lasso-freehand' || clickMode === 'lasso-polygon') {
       canvas.style.cursor = 'cell';
-    } else if (clickMode === 'object-select') {
+    } else if (clickMode === 'object-select' || clickMode === 'calibrate-line') {
       canvas.style.cursor = 'crosshair';
     } else {
       canvas.style.cursor = 'crosshair';

@@ -1,11 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
 export interface CalibrationParams {
-  useDecimalRatio: boolean;
-  scaleNumerator: number;
-  scaleDenominator: number;
-  decimalRatio: number;
+  scaleBarLengthPx: number;
   physicalScaleLength: number;
 }
 
@@ -13,69 +10,47 @@ interface Props {
   onClose: () => void;
   params: CalibrationParams;
   onSave: (params: CalibrationParams) => void;
-  imageWidthPx?: number;
+  calibratedPixelLength: number | null;
 }
 
 /**
  * CalibrationModal — always conditionally mounted by the parent so that
  * useState initialises fresh from `params` every time it opens.
  *
- * Two input modes:
- *   x/y mode:      scaleBarLengthPx = imageWidthPx × (x / y)
- *   decimal mode:  scaleBarLengthPx = imageWidthPx × r
+ * Two fields:
+ *   L — Scale bar length (px): auto-populated from the calibrate-line tool, still editable
+ *   z — Real-world length (µm): typed by the user
  *
- * In both cases:
- *   scaleFactor = z / scaleBarLengthPx   (µm per px)
- *   areaFactor  = scaleFactor²           (µm² per px²)
- *
- * All numeric fields use string state so the user can freely clear or type
- * a decimal point mid-entry. Parsing happens only in the preview and on Apply.
+ * Computes:
+ *   scaleFactor = z / L   (µm per px)
+ *   areaFactor  = scaleFactor²
  */
-export default function CalibrationModal({ onClose, params, onSave, imageWidthPx }: Props) {
-  // ── Local draft state (strings so "" and "0." are valid intermediate values) ──
-  const [useDecimal,   setUseDecimal]   = useState(params.useDecimalRatio);
-  const [numerator,    setNumerator]    = useState(String(params.scaleNumerator));
-  const [denominator,  setDenominator]  = useState(String(params.scaleDenominator));
-  const [decimalRatio, setDecimalRatio] = useState(String(params.decimalRatio));
-  const [physical,     setPhysical]     = useState(String(params.physicalScaleLength));
+export default function CalibrationModal({ onClose, params, onSave, calibratedPixelLength }: Props) {
+  const [scaleBarPx, setScaleBarPx] = useState(String(params.scaleBarLengthPx));
+  const [physical,   setPhysical]   = useState(String(params.physicalScaleLength));
 
-  // ── Parse draft strings for preview and validation ────────────────────────
-  const numN = parseFloat(numerator);
-  const numD = parseFloat(denominator);
-  const numR = parseFloat(decimalRatio);
-  const numP = parseFloat(physical);
+  // Sync calibratedPixelLength into the field whenever it changes (e.g. opened after drawing a line)
+  useEffect(() => {
+    if (calibratedPixelLength !== null && calibratedPixelLength > 0) {
+      setScaleBarPx(String(Math.round(calibratedPixelLength * 10) / 10));
+    }
+  }, [calibratedPixelLength]);
 
-  const isRatioValid = useDecimal
-    ? (numR > 0 && isFinite(numR))
-    : (numN > 0 && isFinite(numN) && numD > 0 && isFinite(numD));
+  const numPx = parseFloat(scaleBarPx);
+  const numP  = parseFloat(physical);
 
-  const isValid = isRatioValid && numP > 0 && isFinite(numP);
+  const isValid = numPx > 0 && isFinite(numPx) && numP > 0 && isFinite(numP);
 
-  const ratio = useDecimal ? numR : numN / numD;
-  const scaleBarLengthPx =
-    isValid && imageWidthPx && imageWidthPx > 0 && ratio > 0
-      ? imageWidthPx * ratio
-      : null;
-  const scaleFactor = scaleBarLengthPx ? numP / scaleBarLengthPx : null;
+  const scaleFactor = isValid ? numP / numPx : null;
   const areaFactor  = scaleFactor !== null ? scaleFactor * scaleFactor : null;
 
-  // ── Apply — only commits to global state on explicit user action ──────────
   function handleSave() {
     if (!isValid) return;
-    onSave({
-      useDecimalRatio:     useDecimal,
-      // Preserve the hidden mode's last good values so switching back is lossless
-      scaleNumerator:      (numN > 0 && isFinite(numN)) ? numN : params.scaleNumerator,
-      scaleDenominator:    (numD > 0 && isFinite(numD)) ? numD : params.scaleDenominator,
-      decimalRatio:        (numR > 0 && isFinite(numR)) ? numR : params.decimalRatio,
-      physicalScaleLength: numP,
-    });
+    onSave({ scaleBarLengthPx: numPx, physicalScaleLength: numP });
     onClose();
   }
 
-  // ── Helper: border colour for a single field ──────────────────────────────
   function fieldBorder(raw: string, parsed: number): string {
-    // While empty or mid-decimal (e.g. "0.") show neutral border
     if (raw === '') return 'border-gray-700 focus:border-teal-500';
     return parsed > 0 && isFinite(parsed)
       ? 'border-gray-700 focus:border-teal-500'
@@ -86,7 +61,6 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
     'w-full bg-gray-800 border rounded-lg px-3 py-2 text-sm text-gray-200 font-mono ' +
     'focus:outline-none transition-colors';
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return createPortal(
     <div
       className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
@@ -121,104 +95,41 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
         {/* ── Body ────────────────────────────────────────────────────────── */}
         <div className="px-6 py-5 space-y-5">
 
-          {/* Formula hint — updates with mode */}
+          {/* Hint */}
           <div className="bg-gray-800/60 rounded-xl border border-gray-700/50 px-4 py-3">
             <p className="text-[11px] text-gray-400 leading-relaxed">
-              {useDecimal ? (
-                <>
-                  The scale bar covers{' '}
-                  <span className="font-mono text-gray-200">r</span>{' '}
-                  (decimal fraction) of the image width and represents{' '}
-                  <span className="font-mono text-gray-200">z µm</span>{' '}
-                  in physical space.
-                </>
-              ) : (
-                <>
-                  The scale bar covers{' '}
-                  <span className="font-mono text-gray-200">x / y</span>{' '}
-                  of the image width and represents{' '}
-                  <span className="font-mono text-gray-200">z µm</span>{' '}
-                  in physical space.
-                </>
-              )}
+              Use the{' '}
+              <span className="font-mono text-teal-300">Calibrate Line</span>{' '}
+              tool to draw a line over a known scale bar, then enter its real-world size below.
+              Formula:{' '}
+              <span className="font-mono text-gray-200">µm/px = z / L</span>
             </p>
           </div>
 
-          {/* Mode toggle */}
-          <label className="flex items-center gap-3 px-1 cursor-pointer select-none group">
-            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
-              useDecimal
-                ? 'bg-teal-600 border-teal-500'
-                : 'border-gray-600 bg-gray-800 group-hover:border-gray-500'
-            }`}>
-              {useDecimal && (
-                <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
-              )}
-              <input
-                type="checkbox"
-                className="hidden"
-                checked={useDecimal}
-                onChange={e => setUseDecimal(e.target.checked)}
-              />
-            </div>
-            <span className="text-xs font-medium text-gray-300 group-hover:text-white transition-colors">
-              Use single decimal ratio
-            </span>
-          </label>
-
-          {/* ── Ratio inputs (conditional on mode) ──────────────────────── */}
           <div className="space-y-4">
-            {useDecimal ? (
-              <div>
-                <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
-                  r — Decimal Ratio
-                </label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={decimalRatio}
-                  onChange={e => setDecimalRatio(e.target.value)}
-                  placeholder="e.g. 0.1"
-                  className={`${baseInput} ${fieldBorder(decimalRatio, numR)}`}
-                />
-              </div>
-            ) : (
-              <>
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
-                    x — Scale Numerator
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={numerator}
-                    onChange={e => setNumerator(e.target.value)}
-                    placeholder="e.g. 1"
-                    className={`${baseInput} ${fieldBorder(numerator, numN)}`}
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
-                    y — Scale Denominator
-                  </label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={denominator}
-                    onChange={e => setDenominator(e.target.value)}
-                    placeholder="e.g. 10"
-                    className={`${baseInput} ${fieldBorder(denominator, numD)}`}
-                  />
-                </div>
-              </>
-            )}
 
-            {/* Physical scale length — always visible */}
+            {/* Scale bar length (px) */}
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
-                z — Physical Scale Length (<span className="normal-case">µm</span>)
+                L — Scale bar length (<span className="normal-case">px</span>)
+                {calibratedPixelLength !== null && calibratedPixelLength > 0 && (
+                  <span className="ml-2 normal-case font-normal text-teal-400">← from calibrate line</span>
+                )}
+              </label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={scaleBarPx}
+                onChange={e => setScaleBarPx(e.target.value)}
+                placeholder="e.g. 320"
+                className={`${baseInput} ${fieldBorder(scaleBarPx, numPx)}`}
+              />
+            </div>
+
+            {/* Real-world length (µm) */}
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider text-gray-500 block mb-1.5">
+                z — Real-world length (<span className="normal-case">µm</span>)
               </label>
               <input
                 type="text"
@@ -246,18 +157,10 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
                   <span className="text-gray-400">Area factor</span>
                   <span className="text-teal-300">{areaFactor!.toFixed(7)} µm²/px²</span>
                 </div>
-                {imageWidthPx && (
-                  <div className="flex justify-between text-xs font-mono border-t border-teal-700/30 pt-1 mt-1">
-                    <span className="text-gray-400">Scale bar length</span>
-                    <span className="text-gray-300">{scaleBarLengthPx!.toFixed(1)} px</span>
-                  </div>
-                )}
               </div>
             ) : (
               <p className="text-xs text-gray-500 italic">
-                {!isValid
-                  ? 'Enter valid positive numbers in all fields.'
-                  : 'Load an image first to preview computed values.'}
+                Enter valid positive numbers in all fields.
               </p>
             )}
           </div>

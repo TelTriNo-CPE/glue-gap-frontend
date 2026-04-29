@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
-import { detectPartialGaps, saveAnalysisGaps } from '../api';
+import { cleanupStem, detectPartialGaps, saveAnalysisGaps } from '../api';
 import { applyPolygon, gapToTurfPolygon } from '../utils/turfBridge';
 import type { AnalysisResult, BoundingBox, ClickMode, DetectionVersion, Gap, SelectionMode } from '../types';
 import useGapHistory from '../hooks/useGapHistory';
@@ -45,7 +46,31 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
 
   const [selectedGapIds, setSelectedGapIds] = useState<Set<number>>(new Set());
   const fileStem = fileKey.replace(/\.[^.]+$/, '');
-  
+
+  // Delete all MinIO objects for this session, then hand control back to the
+  // parent. Errors are swallowed so the UI always resets regardless.
+  const handleReset = useCallback(async () => {
+    try {
+      await cleanupStem(fileStem);
+    } catch {
+      // best-effort — don't block the reset
+    }
+    onReset();
+  }, [fileStem, onReset]);
+
+  // Fire a keepalive DELETE when the user refreshes or closes the tab so that
+  // MinIO is cleaned up even though the component unmounts immediately.
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      fetch(`/upload/cleanup/${encodeURIComponent(fileStem)}`, {
+        method: 'DELETE',
+        keepalive: true,
+      });
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [fileStem]);
+
   const viewerContainerRef = useRef<HTMLDivElement>(null);
 
   const [detectionHistory, setDetectionHistory]  = useState<DetectionVersion[]>([]);
@@ -83,30 +108,43 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
 
   // ── Calibration parameters ──────────────────────────────────────────────────
-  const [useDecimalRatio,     setUseDecimalRatio]     = useState(false);
-  const [scaleNumerator,      setScaleNumerator]      = useState(1);
-  const [scaleDenominator,    setScaleDenominator]    = useState(10);
-  const [decimalRatio,        setDecimalRatio]        = useState(0.1);   // 1/10 = 0.1
+  const [calibrateLine, setCalibrateLine] = useState<{
+    start: { x: number; y: number };
+    end:   { x: number; y: number };
+  } | null>(null);
+  const [calibrateLinePixelLength, setCalibrateLinePixelLength] = useState<number | null>(null);
+  const [scaleBarLengthPx,   setScaleBarLengthPx]   = useState(320);
   const [physicalScaleLength, setPhysicalScaleLength] = useState(2000);
+  const [confirmCalibrateOpen, setConfirmCalibrateOpen] = useState(false);
 
-  const calibrationParams: CalibrationParams = {
-    useDecimalRatio, scaleNumerator, scaleDenominator, decimalRatio, physicalScaleLength,
-  };
-
-  // imageWidthPx from the active analysis result (or the OSD viewer's reported size)
-  const imageWidthPx = result?.image_size.width ?? imageSize?.width ?? 0;
+  const calibrationParams: CalibrationParams = { scaleBarLengthPx, physicalScaleLength };
 
   const { scaleFactor, areaFactor } = useMemo(() => {
-    if (!imageWidthPx || physicalScaleLength <= 0) return { scaleFactor: 1, areaFactor: 1 };
-    const ratio = useDecimalRatio
-      ? decimalRatio
-      : (scaleDenominator === 0 ? 0 : scaleNumerator / scaleDenominator);
-    if (ratio <= 0) return { scaleFactor: 1, areaFactor: 1 };
-    const scaleBarLengthPx = imageWidthPx * ratio;
-    if (scaleBarLengthPx <= 0) return { scaleFactor: 1, areaFactor: 1 };
+    if (scaleBarLengthPx <= 0 || physicalScaleLength <= 0) return { scaleFactor: 1, areaFactor: 1 };
     const sf = physicalScaleLength / scaleBarLengthPx;
     return { scaleFactor: sf, areaFactor: sf * sf };
-  }, [imageWidthPx, useDecimalRatio, scaleNumerator, scaleDenominator, decimalRatio, physicalScaleLength]);
+  }, [scaleBarLengthPx, physicalScaleLength]);
+
+  // Intercept calibrate-line mode activation to show confirmation guardrail
+  function handleSetClickMode(mode: ClickMode) {
+    if (mode === 'calibrate-line') {
+      setConfirmCalibrateOpen(true);
+      return;
+    }
+    setClickMode(mode);
+  }
+
+  const handleCalibrateLineDrawn = useCallback((
+    start: { x: number; y: number },
+    end:   { x: number; y: number },
+    pixelDist: number,
+  ) => {
+    setCalibrateLine({ start, end });
+    setCalibrateLinePixelLength(pixelDist);
+    setScaleBarLengthPx(Math.round(pixelDist * 10) / 10);
+    setClickMode('pan');
+  }, []);
+
   const previousModeRef = useRef<ClickMode | null>(null);
   const selectionModeBeforeAltRef = useRef<SelectionMode>('add');
 
@@ -914,9 +952,9 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
             onToggleHideUnselected={() => setHideUnselected(prev => !prev)}
             onToggleOutlineOnly={() => setIsOutlineOnly(prev => !prev)}
             onDetect={handleDetect}
-            onReset={onReset}
+            onReset={handleReset}
             clickMode={clickMode}
-            setClickMode={setClickMode}
+            setClickMode={handleSetClickMode}
             brushSize={brushSize}
             onBrushSizeChange={setBrushSize}
             canUndo={canUndo}
@@ -1068,6 +1106,8 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
               onInfoToast={setInfoToast}
               onObjectSelectBbox={handleObjectSelectBbox}
               onImageSizeReady={setImageSize}
+              calibrateLine={calibrateLine}
+              onCalibrateLineDrawn={handleCalibrateLineDrawn}
             />
           </div>
         </div>
@@ -1146,17 +1186,83 @@ export default function AnalysisView({ fileKey, originalFile, onReset }: Props) 
         <CalibrationModal
           params={calibrationParams}
           onClose={() => setCalibrationOpen(false)}
-          onSave={({ useDecimalRatio: u, scaleNumerator: n, scaleDenominator: d, decimalRatio: r, physicalScaleLength: p }) => {
-            setUseDecimalRatio(u);
-            setScaleNumerator(n);
-            setScaleDenominator(d);
-            setDecimalRatio(r);
+          onSave={({ scaleBarLengthPx: px, physicalScaleLength: p }) => {
+            setScaleBarLengthPx(px);
             setPhysicalScaleLength(p);
           }}
-          imageWidthPx={imageWidthPx || undefined}
+          calibratedPixelLength={calibrateLinePixelLength}
+        />
+      )}
+
+      {/* Confirm Calibrate Line — guardrail before activating the tool */}
+      {confirmCalibrateOpen && (
+        <ConfirmCalibrateModal
+          hasPreviousLine={calibrateLine !== null}
+          onConfirm={() => {
+            setCalibrateLine(null);
+            setCalibrateLinePixelLength(null);
+            setClickMode('calibrate-line');
+            setConfirmCalibrateOpen(false);
+          }}
+          onCancel={() => setConfirmCalibrateOpen(false)}
         />
       )}
     </div>
+  );
+}
+
+// ─── Confirm Calibrate Line modal ────────────────────────────────────────────
+
+function ConfirmCalibrateModal({
+  hasPreviousLine,
+  onConfirm,
+  onCancel,
+}: {
+  hasPreviousLine: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="relative w-full max-w-sm mx-4 bg-gray-900 rounded-2xl shadow-2xl border border-gray-700/80 overflow-hidden">
+
+        <div className="px-6 py-5">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-8 h-8 rounded-lg bg-amber-600 flex items-center justify-center shrink-0">
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+            </div>
+            <h2 className="text-sm font-semibold text-white">Confirm Calibrate Line</h2>
+          </div>
+          <p className="text-sm text-gray-300 leading-relaxed">
+            {hasPreviousLine
+              ? 'Redraw calibrate line? The previous line and scale data will be lost. Please confirm.'
+              : 'Warning: Using this tool will overwrite your existing calibration scale. Are you sure you want to proceed?'}
+          </p>
+        </div>
+
+        <div className="flex gap-2 px-6 py-4 border-t border-gray-700/80">
+          <button
+            onClick={onCancel}
+            className="flex-1 px-4 py-2 text-sm text-gray-300 hover:text-white border border-gray-600
+                       rounded-lg hover:bg-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 px-4 py-2 bg-amber-600 text-white text-sm font-semibold rounded-lg
+                       hover:bg-amber-500 transition-colors"
+          >
+            Confirm
+          </button>
+        </div>
+
+      </div>
+    </div>,
+    document.body,
   );
 }
 
