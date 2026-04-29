@@ -24,24 +24,33 @@ interface Props {
  *   areaFactor       = scaleFactor²            (µm² per px²)
  */
 export default function CalibrationModal({ onClose, params, onSave, imageWidthPx }: Props) {
-  const [numerator,   setNumerator]   = useState(params.scaleNumerator);
-  const [denominator, setDenominator] = useState(params.scaleDenominator);
-  const [physical,    setPhysical]    = useState(params.physicalScaleLength);
+  // ── Local draft state stored as strings so inputs can be freely cleared ──
+  const [numerator,   setNumerator]   = useState(String(params.scaleNumerator));
+  const [denominator, setDenominator] = useState(String(params.scaleDenominator));
+  const [physical,    setPhysical]    = useState(String(params.physicalScaleLength));
+
+  // Parse for preview — may be NaN when fields are empty
+  const numN = parseFloat(numerator);
+  const numD = parseFloat(denominator);
+  const numP = parseFloat(physical);
+  const isValid = numN > 0 && numD > 0 && numP > 0 && isFinite(numN) && isFinite(numD) && isFinite(numP);
 
   const scaleBarLengthPx =
-    imageWidthPx && imageWidthPx > 0 && denominator > 0 && numerator > 0
-      ? imageWidthPx * (numerator / denominator)
+    isValid && imageWidthPx && imageWidthPx > 0
+      ? imageWidthPx * (numN / numD)
       : null;
 
   const scaleFactor =
-    scaleBarLengthPx && scaleBarLengthPx > 0 && physical > 0
-      ? physical / scaleBarLengthPx
+    scaleBarLengthPx && scaleBarLengthPx > 0
+      ? numP / scaleBarLengthPx
       : null;
 
   const areaFactor = scaleFactor !== null ? scaleFactor * scaleFactor : null;
 
+  // Only commit to global state when the user explicitly clicks Apply
   function handleSave() {
-    onSave({ scaleNumerator: numerator, scaleDenominator: denominator, physicalScaleLength: physical });
+    if (!isValid) return;
+    onSave({ scaleNumerator: numN, scaleDenominator: numD, physicalScaleLength: numP });
     onClose();
   }
 
@@ -101,9 +110,10 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
                 min={1}
                 step={1}
                 value={numerator}
-                onChange={e => { const v = Number(e.target.value); if (v >= 1) setNumerator(v); }}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
-                           text-gray-200 font-mono focus:outline-none focus:border-teal-500"
+                onChange={e => setNumerator(e.target.value)}
+                className={`w-full bg-gray-800 border rounded-lg px-3 py-2 text-sm
+                           text-gray-200 font-mono focus:outline-none transition-colors
+                           ${numerator !== '' && !(numN > 0) ? 'border-red-500 focus:border-red-400' : 'border-gray-700 focus:border-teal-500'}`}
               />
             </div>
 
@@ -116,9 +126,10 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
                 min={1}
                 step={1}
                 value={denominator}
-                onChange={e => { const v = Number(e.target.value); if (v >= 1) setDenominator(v); }}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
-                           text-gray-200 font-mono focus:outline-none focus:border-teal-500"
+                onChange={e => setDenominator(e.target.value)}
+                className={`w-full bg-gray-800 border rounded-lg px-3 py-2 text-sm
+                           text-gray-200 font-mono focus:outline-none transition-colors
+                           ${denominator !== '' && !(numD > 0) ? 'border-red-500 focus:border-red-400' : 'border-gray-700 focus:border-teal-500'}`}
               />
             </div>
 
@@ -131,9 +142,10 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
                 min={1}
                 step={1}
                 value={physical}
-                onChange={e => { const v = Number(e.target.value); if (v >= 1) setPhysical(v); }}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm
-                           text-gray-200 font-mono focus:outline-none focus:border-teal-500"
+                onChange={e => setPhysical(e.target.value)}
+                className={`w-full bg-gray-800 border rounded-lg px-3 py-2 text-sm
+                           text-gray-200 font-mono focus:outline-none transition-colors
+                           ${physical !== '' && !(numP > 0) ? 'border-red-500 focus:border-red-400' : 'border-gray-700 focus:border-teal-500'}`}
               />
             </div>
           </div>
@@ -162,8 +174,8 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
               </div>
             ) : (
               <p className="text-xs text-gray-500 italic">
-                {imageWidthPx
-                  ? 'Invalid parameters — all values must be positive.'
+                {!isValid
+                  ? 'Enter valid positive numbers in all fields.'
                   : 'Load an image first to preview computed values.'}
               </p>
             )}
@@ -181,8 +193,9 @@ export default function CalibrationModal({ onClose, params, onSave, imageWidthPx
           </button>
           <button
             onClick={handleSave}
+            disabled={!isValid}
             className="flex-1 px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg
-                       hover:bg-teal-500 transition-colors"
+                       hover:bg-teal-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Apply
           </button>
