@@ -272,11 +272,24 @@ async function runImageExport(p: ImgParams): Promise<void> {
   const imgW = p.imageSize?.width  || 1024;
   const imgH = p.imageSize?.height || 768;
 
+  // Scale down the export canvas if either dimension exceeds the browser's
+  // safe maximum, which avoids an empty blob on very large images (e.g. 30000×20000).
+  const MAX_CANVAS_DIMENSION = 8192;
+  const maxDim = Math.max(imgW, imgH);
+  const canvasScale = maxDim > MAX_CANVAS_DIMENSION ? MAX_CANVAS_DIMENSION / maxDim : 1;
+  const canvasW = Math.round(imgW * canvasScale);
+  const canvasH = Math.round(imgH * canvasScale);
+  if (canvasScale < 1) {
+    console.log(
+      `[Export] Image too large (${imgW}×${imgH}), scaling export canvas to ${canvasW}×${canvasH} (factor: ${canvasScale.toFixed(4)})`,
+    );
+  }
+
   // [4] Create the single shared canvas context.  Every layer is drawn onto
   // this exact same ctx in strict sequential order.
   const canvas = document.createElement('canvas');
-  canvas.width  = imgW;
-  canvas.height = imgH;
+  canvas.width  = canvasW;
+  canvas.height = canvasH;
   const ctx = canvas.getContext('2d')!;
 
   // [2] STEP 1: Await the image load completely BEFORE touching the canvas.
@@ -285,30 +298,31 @@ async function runImageExport(p: ImgParams): Promise<void> {
     console.error('[Export] Source image could not be loaded — exporting gaps on plain background.');
   }
 
-  // [2] STEP 2: Draw the background photo, scaled to fill the analysis canvas.
-  // ctx.drawImage with explicit (0, 0, imgW, imgH) destination stretches src
-  // to match the canvas regardless of src.width/height.
+  // [2] STEP 2: Draw the background photo, scaled to fill the export canvas.
+  // ctx.drawImage with explicit (0, 0, canvasW, canvasH) destination stretches
+  // src to match the canvas regardless of src.width/height.
   if (src) {
-    ctx.drawImage(src, 0, 0, imgW, imgH);
+    ctx.drawImage(src, 0, 0, canvasW, canvasH);
   } else {
     // Placeholder when image loading fails
     ctx.fillStyle = '#111';
-    ctx.fillRect(0, 0, imgW, imgH);
+    ctx.fillRect(0, 0, canvasW, canvasH);
     ctx.fillStyle = '#fff';
-    ctx.font = `bold ${Math.round(imgW / 30)}px sans-serif`;
+    ctx.font = `bold ${Math.round(canvasW / 30)}px sans-serif`;
     ctx.textAlign = 'center';
-    ctx.fillText('Original image unavailable', imgW / 2, imgH / 2 - 20);
-    ctx.font = `${Math.round(imgW / 50)}px sans-serif`;
-    ctx.fillText('Exporting detections only', imgW / 2, imgH / 2 + 30);
+    ctx.fillText('Original image unavailable', canvasW / 2, canvasH / 2 - Math.round(20 * canvasScale));
+    ctx.font = `${Math.round(canvasW / 50)}px sans-serif`;
+    ctx.fillText('Exporting detections only', canvasW / 2, canvasH / 2 + Math.round(30 * canvasScale));
   }
 
   // [2] STEP 3: ONLY AFTER the background is fully drawn, loop through the
-  // gaps and draw each polygon on top.  All coordinates are in image pixel
-  // space (imgW × imgH), so sx=1, sy=1 is correct.
+  // gaps and draw each polygon on top.  Gap coordinates are in analysis pixel
+  // space (imgW × imgH); passing canvasScale as sx/sy maps them onto the
+  // (potentially downscaled) export canvas.
   // Note: drawGap handles internal denormalization if coordinates are normalized [0,1].
   if ((p.drawOutlines || p.drawMasks) && p.exportGaps.length > 0) {
     for (const gap of p.exportGaps) {
-      drawGap(ctx, gap, 1, 1, p.drawOutlines, p.drawMasks, p.outlineColor, p.fillColor, 0, 0, 0, 0, undefined, imgW, imgH);
+      drawGap(ctx, gap, canvasScale, canvasScale, p.drawOutlines, p.drawMasks, p.outlineColor, p.fillColor, 0, 0, 0, 0, undefined, imgW, imgH);
     }
   }
 
@@ -326,15 +340,16 @@ async function runImageExport(p: ImgParams): Promise<void> {
       `Radius Range:  ${(minRadius * p.scaleFactor).toFixed(2)} – ${(maxRadius * p.scaleFactor).toFixed(2)} µm`,
     ];
 
-    const fontSize = Math.max(14, Math.round(imgW / 70));
+    // Font size proportional to the export canvas width (already reflects canvasScale).
+    const fontSize = Math.max(10, Math.round(canvasW / 70));
     ctx.font = `bold ${fontSize}px "Courier New", monospace`;
     const lineH  = fontSize * 1.5;
     const pad    = fontSize * 0.8;
     const maxW   = Math.max(...lines.map(l => ctx.measureText(l).width));
     const boxW   = maxW + pad * 2;
     const boxH   = lines.length * lineH + pad * 1.5;
-    const bx     = imgW - boxW - pad * 2;
-    const by     = imgH - boxH - pad * 2;
+    const bx     = canvasW - boxW - pad * 2;
+    const by     = canvasH - boxH - pad * 2;
 
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
     roundRect(ctx, bx, by, boxW, boxH, fontSize / 2);
