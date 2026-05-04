@@ -25,25 +25,44 @@ interface ExportModalProps {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Strictly loads an image and awaits its onload event.
+ * Load an image for canvas export.
+ *
+ * For http(s) / relative URLs we fetch the bytes first and create a local
+ * blob URL so the resulting canvas is never tainted — even when the origin
+ * server (e.g. MinIO) does not return CORS headers.  Blob and data URLs are
+ * already same-origin, so they are used directly.
  */
-function loadImg(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    console.log(`[Export] Attempting to load image: ${url}`);
+async function loadImg(url: string): Promise<HTMLImageElement> {
+  console.log(`[Export] Attempting to load image: ${url}`);
+
+  // Re-fetch as a local blob to guarantee the canvas stays untainted.
+  let safeUrl = url;
+  if (!url.startsWith('blob:') && !url.startsWith('data:')) {
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) {
+        safeUrl = URL.createObjectURL(await resp.blob());
+      }
+    } catch {
+      // fetch failed (e.g. network error) — fall through to direct img.src
+    }
+  }
+
+  return new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous'; 
-    
+    img.crossOrigin = 'anonymous';
+
     img.onload = () => {
       console.log(`[Export] Successfully loaded image: ${url} (${img.width}x${img.height})`);
       resolve(img);
     };
-    
+
     img.onerror = (e) => {
       console.error(`[Export] Failed to load image: ${url}`, e);
       reject(new Error(`Cannot load ${url}`));
     };
-    
-    img.src = url;
+
+    img.src = safeUrl;
   });
 }
 
