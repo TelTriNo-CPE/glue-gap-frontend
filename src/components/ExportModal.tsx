@@ -66,49 +66,61 @@ async function loadImg(url: string): Promise<HTMLImageElement> {
   });
 }
 
-/** 
- * Attempt to load the original source image from various potential paths.
- */
-async function tryLoadSourceImage(stem: string, fileKey?: string, explicitSrc?: string): Promise<HTMLImageElement | null> {
-  const urls = [];
-  
-  if (explicitSrc) {
-    urls.push(explicitSrc);
-  }
-
+/** Build the ordered list of candidate image URLs. */
+function buildSourceUrls(stem: string, fileKey?: string, explicitSrc?: string): string[] {
+  const urls: string[] = [];
+  if (explicitSrc) urls.push(explicitSrc);
   if (fileKey) {
     urls.push(`/tiles/${fileKey}`);
     urls.push(`/tiles/${stem}/${fileKey}`);
-    // If it's a full URL already
-    if (fileKey.startsWith('http') || fileKey.startsWith('/')) {
-      urls.push(fileKey);
-    }
+    if (fileKey.startsWith('http') || fileKey.startsWith('/')) urls.push(fileKey);
   }
-
   urls.push(
-    `/tiles/${stem}.jpg`,
-    `/tiles/${stem}.jpeg`,
-    `/tiles/${stem}.png`,
-    `/tiles/${stem}/${stem}.jpg`,
-    `/tiles/${stem}/${stem}.jpeg`,
-    `/tiles/${stem}/${stem}.png`,
-    `/tiles/${stem}/source.jpg`,
-    `/tiles/${stem}/original.jpg`,
+    `/tiles/${stem}.jpg`,  `/tiles/${stem}.jpeg`,  `/tiles/${stem}.png`,
+    `/tiles/${stem}/${stem}.jpg`, `/tiles/${stem}/${stem}.jpeg`, `/tiles/${stem}/${stem}.png`,
+    `/tiles/${stem}/source.jpg`,  `/tiles/${stem}/original.jpg`,
   );
+  return Array.from(new Set(urls.filter(Boolean)));
+}
 
-  // Remove duplicates and empty strings
-  const uniqueUrls = Array.from(new Set(urls.filter(Boolean)));
-
-  for (const url of uniqueUrls) {
-    try { 
-      const img = await loadImg(url!); 
+/**
+ * Attempt to load the original source image from various potential paths.
+ * Used by Excel thumbnail generation (small canvas — full decode is fine).
+ */
+async function tryLoadSourceImage(stem: string, fileKey?: string, explicitSrc?: string): Promise<HTMLImageElement | null> {
+  for (const url of buildSourceUrls(stem, fileKey, explicitSrc)) {
+    try {
+      const img = await loadImg(url!);
       if (img.width > 0 && img.height > 0) return img;
-    } catch { 
-      /* try next */ 
+    } catch {
+      /* try next */
     }
   }
-  
   console.error(`[Export] All image source candidates failed for stem=${stem}, fileKey=${fileKey}`);
+  return null;
+}
+
+/**
+ * Fetch an image as a raw Blob, trying each candidate URL in order.
+ * Returns null if every candidate fails or returns a non-image response.
+ */
+async function tryFetchSourceBlob(stem: string, fileKey?: string, explicitSrc?: string): Promise<Blob | null> {
+  for (const url of buildSourceUrls(stem, fileKey, explicitSrc)) {
+    try {
+      console.log(`[Export] Fetching source blob: ${url}`);
+      const resp = await fetch(url!);
+      if (!resp.ok) continue;
+      // Skip non-image responses (e.g. DZI XML descriptors)
+      const ct = resp.headers.get('content-type') || '';
+      if (ct && !ct.startsWith('image/')) continue;
+      const blob = await resp.blob();
+      if (blob.size > 0) {
+        console.log(`[Export] Got source blob: ${url} (${blob.size} bytes)`);
+        return blob;
+      }
+    } catch { /* try next */ }
+  }
+  console.error(`[Export] All source blob candidates failed for stem=${stem}, fileKey=${fileKey}`);
   return null;
 }
 
@@ -311,19 +323,46 @@ async function runImageExport(p: ImgParams): Promise<void> {
   canvas.height = canvasH;
   const ctx = canvas.getContext('2d')!;
 
-  // [2] STEP 1: Await the image load completely BEFORE touching the canvas.
-  const src = await tryLoadSourceImage(p.stem, p.fileKey, p.imageSrc);
-  if (!src) {
-    console.error('[Export] Source image could not be loaded — exporting gaps on plain background.');
+  // [2] STEP 1 + 2: Fetch the source image as a blob and decode it directly
+  // at the export canvas size via createImageBitmap.  This avoids holding a
+  // full-resolution bitmap (e.g. 30 000 × 20 000 = 2.4 GB) in memory and
+  // also side-steps canvas tainting since blob URLs are always same-origin.
+  const srcBlob = await tryFetchSourceBlob(p.stem, p.fileKey, p.imageSrc);
+  let bgDrawn = false;
+
+  if (srcBlob) {
+    // Preferred path: decode at target size — memory-efficient for huge images.
+    try {
+      const bm = await createImageBitmap(srcBlob, {
+        resizeWidth: canvasW,
+        resizeHeight: canvasH,
+        resizeQuality: 'high',
+      });
+      ctx.drawImage(bm, 0, 0);
+      bm.close();
+      bgDrawn = true;
+    } catch (e1) {
+      console.warn('[Export] createImageBitmap with resize failed, trying fallback', e1);
+      // Fallback: decode at native size, then let drawImage scale.
+      try {
+        const blobUrl = URL.createObjectURL(srcBlob);
+        const img = await new Promise<HTMLImageElement>((res, rej) => {
+          const el = new Image();
+          el.onload = () => res(el);
+          el.onerror = rej;
+          el.src = blobUrl;
+        });
+        ctx.drawImage(img, 0, 0, canvasW, canvasH);
+        URL.revokeObjectURL(blobUrl);
+        bgDrawn = true;
+      } catch (e2) {
+        console.error('[Export] Image fallback also failed', e2);
+      }
+    }
   }
 
-  // [2] STEP 2: Draw the background photo, scaled to fill the export canvas.
-  // ctx.drawImage with explicit (0, 0, canvasW, canvasH) destination stretches
-  // src to match the canvas regardless of src.width/height.
-  if (src) {
-    ctx.drawImage(src, 0, 0, canvasW, canvasH);
-  } else {
-    // Placeholder when image loading fails
+  if (!bgDrawn) {
+    console.error('[Export] Source image could not be loaded — exporting gaps on plain background.');
     ctx.fillStyle = '#111';
     ctx.fillRect(0, 0, canvasW, canvasH);
     ctx.fillStyle = '#fff';
